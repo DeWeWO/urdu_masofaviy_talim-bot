@@ -84,4 +84,35 @@ class APIClient:
         }
         return await self.request("POST", "telegram/group/add/", json=payload)
     
+    async def add_register(
+        self,
+        telegram_id: int,
+        group_id: int,
+        username: Optional[str] = None,
+        fio: Optional[str] = None,
+        pnfl: Optional[str] = None,
+        tg_tel: Optional[str] = None,
+        tel: Optional[str] = None,
+        parent_tel: Optional[str] = None,
+        address: Optional[str] = None,
+        is_active: bool = True
+    ) -> Optional[Dict]:
+        payload = {
+            "telegram_id": telegram_id,
+            "username": username,
+            "fio": fio,
+            "group_id": group_id,
+            "pnfl": pnfl,
+            "tg_tel": tg_tel,
+            "tel": tel,
+            "parent_tel": parent_tel,
+            "address": address,
+            "is_active": is_active,
+        }
+        # None qiymatlarni yubormaslik uchun filtr
+        payload = {k: v for k, v in payload.items() if v is not None}
+        
+        return await self.request("POST", "register/", json=payload)
+
+    
 api_client = APIClient()
