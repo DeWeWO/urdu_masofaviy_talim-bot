@@ -84,3 +84,4 @@ async def bot_added_to_group(event: types.ChatMemberUpdated):
             print(f"Xatolik: {e}")
             if admin_ids:
                 await bot.send_message(chat_id=admin_ids[0], text=error_text)
+
