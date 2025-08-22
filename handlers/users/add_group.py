@@ -4,7 +4,7 @@ from keyboards.inline.buttons import inine_add_group
 from loader import db, bot
 from data.config import ADMINS
 from utils.db.postgres import api_client
-from utils.telethon_client import telethon_client   # Telethon client
+from utils.telethon_client import telethon_client
 
 router = Router()
 
@@ -16,12 +16,6 @@ async def start_register(message: types.Message):
 
 @router.my_chat_member()
 async def bot_added_to_group(event: types.ChatMemberUpdated):
-    """
-    Bot guruhga qo‘shilganda:
-    1. Adminlarga xabar yuboradi
-    2. Guruhni DB va backend API'ga yozadi
-    3. Telethon orqali guruh a'zolarini yig‘ib, adminlarga qismini yuboradi
-    """
     if event.chat.type not in [ChatType.GROUP, ChatType.SUPERGROUP]:
         return
     
@@ -37,7 +31,7 @@ async def bot_added_to_group(event: types.ChatMemberUpdated):
         admin_ids = ADMINS
         
         accept_text = f"🎉 Bot yangi guruhga qo'shildi!\n\n📋 Guruh: {title}\n🆔 ID: {group_id}"
-        error_text = f"❗️❗️ Botni guruhga qo'shishda xatolik bo‘ldi.\nQaytadan urinib ko‘ring"
+        error_text = f"❗️❗️ Botni guruhga qo'shishda xatolik bo'ldi.\nQaytadan urinib ko'ring"
         
         try:
             # 1. Adminlarga xabar yuborish
@@ -54,7 +48,7 @@ async def bot_added_to_group(event: types.ChatMemberUpdated):
                 if admin_ids:
                     await bot.send_message(chat_id=admin_ids[0], text=error_text)
 
-            # 3. Telethon orqali guruh a’zolarini olish
+            # 3. Telethon orqali guruh a'zolarini olish
             members = []
             async for user in telethon_client.iter_participants(group_id):
                 members.append({
@@ -66,7 +60,7 @@ async def bot_added_to_group(event: types.ChatMemberUpdated):
             # 4. Adminlarga qismini yuborish
             preview = "\n".join([
                 f"{m['id']} | {m['full_name']} | @{m['username'] or ''}"
-                for m in members[:40]  # faqat 10 ta
+                for m in members[:40]
             ])
 
             info_text = (
@@ -85,3 +79,43 @@ async def bot_added_to_group(event: types.ChatMemberUpdated):
             if admin_ids:
                 await bot.send_message(chat_id=admin_ids[0], text=error_text)
 
+
+@router.chat_member()
+async def new_member_added(event: types.ChatMemberUpdated):
+    if event.chat.type not in [ChatType.GROUP, ChatType.SUPERGROUP]:
+        return
+    
+    if event.new_chat_member.user.id == (await bot.get_me()).id:
+        return
+    
+    if (event.old_chat_member.status in [ChatMemberStatus.LEFT, ChatMemberStatus.KICKED] and 
+        event.new_chat_member.status in [ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR]):
+        
+        user = event.new_chat_member.user
+        group_id = event.chat.id
+        group_title = event.chat.title
+        
+        user_data = {
+            "id": user.id,
+            "full_name": f"{user.first_name or ''} {user.last_name or ''}".strip(),
+            "username": user.username
+        }
+        
+        try:            
+            member_text = (
+                f"👤 Yangi a'zo qo'shildi!\n\n"
+                f"📋 Guruh: {group_title}\n"
+                f"🆔 Guruh ID: {group_id}\n\n"
+                f"👤 A'zo: {user_data['full_name']}\n"
+                f"🆔 ID: {user_data['id']}\n"
+                f"📱 Username: @{user_data['username'] or 'mavjud emas'}"
+            )
+            
+            for admin_id in ADMINS:
+                try:
+                    await bot.send_message(chat_id=admin_id, text=member_text)
+                except Exception as e:
+                    print(f"Admin {admin_id} ga yangi a'zo haqida xabar yuborilmadi: {e}")
+                    
+        except Exception as e:
+            print(f"Yangi a'zoni qayta ishlashda xatolik: {e}")
