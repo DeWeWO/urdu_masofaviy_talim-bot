@@ -2,7 +2,7 @@ import asyncio
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.middlewares.request_logging import logger
-from loader import db
+from utils.telethon_client import telethon_client
 
 
 def setup_handlers(dispatcher: Dispatcher) -> None:
@@ -57,7 +57,9 @@ async def aiogram_on_startup_polling(dispatcher: Dispatcher, bot: Bot) -> None:
     await setup_aiogram(bot=bot, dispatcher=dispatcher)
     await on_startup_notify(bot=bot)
     await set_default_commands(bot=bot)
-
+    print("Telethon clientga ulanmoqda...")
+    await telethon_client.start()   # <-- shart
+    print("Telethon client ishga tushdi!")
 
 async def aiogram_on_shutdown_polling(dispatcher: Dispatcher, bot: Bot):
     logger.info("Stopping polling")
