@@ -1,4 +1,4 @@
-# Aiogram New Template (aiogram 3)
+# Urdu Masofaviy ta'lim Bot
 
 ### 1. Create virtual environment and install packages
 Windows
