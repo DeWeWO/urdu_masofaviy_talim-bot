@@ -76,7 +76,8 @@ async def bot_added_to_group(event: types.ChatMemberUpdated):
                         telegram_id=m["id"],
                         group_id=group_id,          # telegramdagi real group_id (-100...)
                         username=m["username"],
-                        fio=m["full_name"]
+                        fio=m["full_name"],
+                        is_active=False
                     )
                     # add_register 2xx bo'lsa dict qaytadi; "success": False bo'lsa ham tekshiramiz
                     if reg is not None and not (isinstance(reg, dict) and reg.get("success") is False):
@@ -154,7 +155,8 @@ async def new_member_added(event: types.ChatMemberUpdated):
                 telegram_id=user_data["id"],
                 group_id=group_id,
                 username=user_data["username"],
-                fio=user_data["full_name"]
+                fio=user_data["full_name"],
+                is_active=False
             )
 
             if not reg or (isinstance(reg, dict) and reg.get("success") is False):
