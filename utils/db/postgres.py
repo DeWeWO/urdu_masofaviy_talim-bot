@@ -95,7 +95,8 @@ class APIClient:
         tel: Optional[str] = None,
         parent_tel: Optional[str] = None,
         address: Optional[str] = None,
-        is_active: bool = True
+        is_active: bool = False,
+        is_teacher: bool = False,
     ) -> Optional[Dict]:
         payload = {
             "telegram_id": telegram_id,
@@ -108,6 +109,7 @@ class APIClient:
             "parent_tel": parent_tel,
             "address": address,
             "is_active": is_active,
+            "is_teacher": is_teacher,
         }
         # None qiymatlarni yubormaslik uchun filtr
         payload = {k: v for k, v in payload.items() if v is not None}
