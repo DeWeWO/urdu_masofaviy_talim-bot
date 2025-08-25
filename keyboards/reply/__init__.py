@@ -1,1 +1,1 @@
-from .buttons import add_group
+from .buttons import add_group, register_markup

@@ -2,6 +2,14 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from data.config import BOT
 
 
+register_confirm = InlineKeyboardMarkup(inline_keyboard=[
+    [
+        InlineKeyboardMarkup(text="✅ Tasdiqlash", callback_data="confirm"),
+        InlineKeyboardMarkup(text="❌ Bekor qilish", callback_data="cancel")
+    ]
+])
+
+
 inline_keyboard = [[
     InlineKeyboardButton(text="✅ Yes", callback_data='yes'),
     InlineKeyboardButton(text="❌ No", callback_data='no')
