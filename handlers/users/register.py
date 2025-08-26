@@ -1,8 +1,9 @@
 from aiogram import types, F, Router
-from aiogram.types import ReplyKeyboardRemove
+from aiogram.types import ReplyKeyboardRemove, CallbackQuery
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from keyboards.inline.buttons import register_confirm
+from keyboards.inline.checkPhone import PhoneCheckCallback, phone_check_kb
 from keyboards.reply.buttons import register_markup, share_contact
 from states.RegisterState import RegisterState
 from loader import db
@@ -36,3 +37,21 @@ async def get_pnfl(message: types.Message, state: FSMContext):
         await state.update_data({"pnfl": pnfl})
         await message.answer("☎ Telegram telefon raqamingizni ulashing", reply_markup=share_contact())
         await state.set_state(RegisterState.tg_tel)
+
+@router.message(StateFilter(RegisterState.tg_tel))
+async def get_tg_tel(message: types.Message, state: FSMContext):
+    if message.contact and message.contact.phone_number:
+        tg_tel = message.text.strip()
+        await state.update_data({"tg_tel": tg_tel})
+        await message.answer("Bu siz ishlatadigan asosiy telefon raqammi??", reply_markup=phone_check_kb())
+    else:
+        await message.answer("❌ Raqamingizni kontakt sifatida ulashing.", reply_markup=share_contact())
+
+@router.message(PhoneCheckCallback.filter(), RegisterState.tg_tel)
+async def handle_check_phone(call: CallbackQuery, callback_data: PhoneCheckCallback, state: FSMContext):
+    await call.answer()
+    if callback_data.is_actual:
+        await call.message.answer("👨‍👩‍👦 Ota-onangizni telefon raqamini kiriting", reply_markup=ReplyKeyboardRemove())
+        await state.set_state(RegisterState.parent_tel)
+    else:
+        pass
