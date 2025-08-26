@@ -67,3 +67,18 @@ async def get_tel(message: types.Message, state: FSMContext):
     await state.update_data({"tel": tel})
     await message.answer("👨‍👩‍👦 Ota-onangizni telefon raqamini kiriting:")
     await state.set_state(RegisterState.parent_tel)
+
+@router.message(StateFilter(RegisterState.parent_tel))
+async def get_parent_tel(message: types.Message, state: FSMContext):
+    parent_tel = message.text.strip()
+    if not re.fullmatch(r'^(\+998)?\d{9}$', parent_tel):
+        await message.answer("❌ Raqamni to'g'ri formatda kiriting.\nMasalan: +998901234567")
+        return
+    await state.update_data({"parent_tel": parent_tel})
+    data = await state.get_data()
+    phone_numbers = []
+    for key in ['phone1', 'phone2', 'phone3']:
+        if key in data:
+            phone_numbers.append(data[key])
+    await state.update_data({"phones": phone_numbers})
+    await message.answer("📍 ")
