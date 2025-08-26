@@ -1,1 +1,1 @@
-from .buttons import add_group, register_markup, phone
+from .buttons import add_group, register_markup, share_contact

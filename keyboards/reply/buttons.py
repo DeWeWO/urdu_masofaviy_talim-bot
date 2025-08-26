@@ -8,12 +8,13 @@ def register_markup():
         ]
     ])
 
-
-phone = ReplyKeyboardBuilder()
-phone.add(KeyboardButton(text="📞 Kontaktni ulashish", request_contact=True))
-phone.adjust(1)
-
-
+def share_contact():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📞 Kontaktni ulashish", request_contact=True)]
+        ], resize_keyboard=True, one_time_keyboard=False
+    )
+    
 
 def add_group():
     murkup = ReplyKeyboardMarkup(keyboard=[

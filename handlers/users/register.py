@@ -3,7 +3,7 @@ from aiogram.types import ReplyKeyboardRemove
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from keyboards.inline.buttons import register_confirm
-from keyboards.reply.buttons import register_markup, phone
+from keyboards.reply.buttons import register_markup, share_contact
 from states.RegisterState import RegisterState
 from loader import db
 
@@ -34,5 +34,5 @@ async def get_pnfl(message: types.Message, state: FSMContext):
         return
     if len(pnfl) == 14:
         await state.update_data({"pnfl": pnfl})
-        await message.answer("☎ Telegram telefon raqamingizni ulashing", reply_markup=phone.as_markup(resize_keyboard=True))
+        await message.answer("☎ Telegram telefon raqamingizni ulashing", reply_markup=share_contact())
         await state.set_state(RegisterState.tg_tel)
