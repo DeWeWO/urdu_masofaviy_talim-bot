@@ -1,3 +1,4 @@
+import re
 from aiogram import types, F, Router
 from aiogram.types import ReplyKeyboardRemove, CallbackQuery
 from aiogram.filters import StateFilter
@@ -51,7 +52,18 @@ async def get_tg_tel(message: types.Message, state: FSMContext):
 async def handle_check_phone(call: CallbackQuery, callback_data: PhoneCheckCallback, state: FSMContext):
     await call.answer()
     if callback_data.is_actual:
-        await call.message.answer("👨‍👩‍👦 Ota-onangizni telefon raqamini kiriting", reply_markup=ReplyKeyboardRemove())
+        await call.message.answer("👨‍👩‍👦 Ota-onangizni telefon raqamini kiriting:", reply_markup=ReplyKeyboardRemove())
         await state.set_state(RegisterState.parent_tel)
     else:
-        pass
+        await call.message.answer("Iltimos o'zingiz doimiy foydalanadigan telefon raqamingizni kiriting:", reply_markup=ReplyKeyboardRemove())
+        await state.set_state(RegisterState.tel)
+
+@round.message(StateFilter(RegisterState.tel))
+async def get_tel(message: types.Message, state: FSMContext):
+    tel = message.text.strip()
+    if not re.fullmatch(r'^(\+998)?\d{9}$', tel):
+        await message.answer("❌ Raqamni to'g'ri formatda kiriting.\nMasalan: +998901234567")
+        return
+    await state.update_data({"tel": tel})
+    await message.answer("👨‍👩‍👦 Ota-onangizni telefon raqamini kiriting:")
+    await state.set_state(RegisterState.parent_tel)
