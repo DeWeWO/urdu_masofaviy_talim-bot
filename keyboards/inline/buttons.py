@@ -4,8 +4,8 @@ from data.config import BOT
 
 register_confirm = InlineKeyboardMarkup(inline_keyboard=[
     [
-        InlineKeyboardMarkup(text="✅ Tasdiqlash", callback_data="confirm"),
-        InlineKeyboardMarkup(text="❌ Bekor qilish", callback_data="cancel")
+        InlineKeyboardButton(text="✅ Tasdiqlash", callback_data="confirm"),
+        InlineKeyboardButton(text="❌ Bekor qilish", callback_data="cancel")
     ]
 ])
 
