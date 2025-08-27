@@ -8,6 +8,7 @@ from keyboards.inline.checkPhone import phone_check_kb_simple
 from keyboards.reply.buttons import register_markup, share_contact
 from states.RegisterState import RegisterState
 from data.config import ADMINS
+from utils.db.postgres import api_client
 from loader import db, bot
 
 router = Router()
@@ -146,20 +147,72 @@ async def get_check(call: CallbackQuery, callback_data: ChechCall, state: FSMCon
         print("Xabarni o'chirishda xatolik:", e)
     
     if check is True:
+        # Telefon raqamlarini tekshirish va tayyorlash
         phone_numbers = []
-        if 'tg_tel' in data:
-            phone_numbers.append(f"📱 Telegram: {data['tg_tel']}")
-        if 'tel' in data and data['tel'] != data.get('tg_tel'):
-            phone_numbers.append(f"📞 Asosiy: {data['tel']}")
-        if 'parent_tel' in data:
-            phone_numbers.append(f"👨‍👩‍👦 Ota-ona: {data['parent_tel']}")
-        phone_list = "\n".join(phone_numbers)
+        
+        # Ma'lumotlarni oldindan tozalash
+        clean_data = {}
+        for key, value in data.items():
+            if isinstance(value, str):
+                clean_value = value.strip()
+                clean_data[key] = clean_value if clean_value else None
+            else:
+                clean_data[key] = value
+        
+        # Telegram telefon
+        if clean_data.get('tg_tel'):
+            phone_numbers.append(f"📱 Telegram: {clean_data['tg_tel']}")
+        
+        # Asosiy telefon (Telegram dan farqli bo'lsa)
+        if clean_data.get('tel') and clean_data['tel'] != clean_data.get('tg_tel'):
+            phone_numbers.append(f"📞 Asosiy: {clean_data['tel']}")
+        
+        # Ota-ona telefon
+        if clean_data.get('parent_tel'):
+            phone_numbers.append(f"👨‍👩‍👦 Ota-ona: {clean_data['parent_tel']}")
+        
+        # Xabar tayyorlash
+        if phone_numbers:
+            phone_list = "\n".join(phone_numbers)
+            phone_section = f"<b>📞 Telefon raqamlar:</b>\n{phone_list}\n"
+        else:
+            phone_section = "<b>📞 Telefon raqamlar:</b> Kiritilmagan\n"
         
         text = (
             f"Yangi foydalanuvchi ro'yxatdan o'tdi:\n\n"
-            f"<b>👤 F.I.Sh:</b> {data['fio']}\n"
-            f"<b>🆔 JSHSHIR:</b> {data['pnfl']}\n"
-            f"<b>📞 Telefon raqamlar:</b>\n{phone_list}\n"
-            f"<b>📍 Manzil:</b> {data['address']}"
+            f"<b>👤 F.I.Sh:</b> {clean_data['fio']}\n"
+            f"<b>🆔 JSHSHIR:</b> {clean_data['pnfl']}\n"
+            f"{phone_section}"
+            f"<b>📍 Manzil:</b> {clean_data['address']}"
         )
+        
         await bot.send_message(chat_id=ADMINS[0], text=text)
+        
+        try:
+            # telegram_id ni int ga o'tkazish
+            user_telegram_id = int(call.from_user.id)
+            
+            # API-ga yuborish
+            reg = await api_client.update_register(
+                telegram_id=user_telegram_id,  # int sifatida yuborish
+                username=call.from_user.username,  # str() qilmaslik
+                fio=clean_data['fio'],  # {} qavslarsiz
+                pnfl=clean_data['pnfl'],  # {} qavslarsiz
+                tg_tel=clean_data.get('tg_tel'),  # None bo'lishi mumkin
+                tel=clean_data.get('tel'),  # None bo'lishi mumkin
+                parent_tel=clean_data.get('parent_tel'),  # None bo'lishi mumkin
+                address=clean_data['address'],  # {} qavslarsiz
+                is_active=False,
+                is_teacher=False
+            )
+            
+            if reg:
+                print("Foydalanuvchi muvaffaqiyatli ro'yxatga olindi")
+                print(f"API javobi: {reg}")
+            else:
+                print("API dan javob kelmadi")
+                
+        except Exception as e:
+            print(f"Ma'lumotlarni bazaga yozishda xatolik: {e}")
+            import traceback
+            traceback.print_exc()  # To'liq xato ma'lumotini chiqarish
