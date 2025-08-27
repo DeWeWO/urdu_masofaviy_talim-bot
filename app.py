@@ -84,7 +84,7 @@ def main():
     asyncio.run(dispatcher.start_polling(
         bot,
         close_bot_session=True,
-        allowed_updates=['message', 'chat_member', 'my_chat_member']
+        allowed_updates=['message', 'chat_member', 'my_chat_member', 'callback_query']
     ))
 
 
