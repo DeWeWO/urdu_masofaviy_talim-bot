@@ -3,11 +3,12 @@ from aiogram import types, F, Router
 from aiogram.types import ReplyKeyboardRemove, CallbackQuery
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
-from keyboards.inline.buttons import register_confirm
-from keyboards.inline.checkPhone import PhoneCheckCallback, phone_check_kb_simple
+from keyboards.inline.buttons import register_confirm, ChechCall
+from keyboards.inline.checkPhone import phone_check_kb_simple
 from keyboards.reply.buttons import register_markup, share_contact
 from states.RegisterState import RegisterState
-from loader import db
+from data.config import ADMINS
+from loader import db, bot
 
 router = Router()
 
@@ -55,12 +56,10 @@ async def get_tg_tel(message: types.Message, state: FSMContext):
 async def handle_check_phone_simple(call: CallbackQuery, state: FSMContext):
     await call.answer()
     
-    # State'ni tekshirish
     current_state = await state.get_state()
     if current_state != RegisterState.tg_tel:
         return
     
-    # Xabarni o'chirish (ixtiyoriy)
     try:
         await call.message.delete()
     except:
@@ -76,12 +75,10 @@ async def handle_check_phone_simple(call: CallbackQuery, state: FSMContext):
 @router.message(StateFilter(RegisterState.tel))
 async def get_tel(message: types.Message, state: FSMContext):
     tel = message.text.strip()
-    # +998 bilan boshlangan yoki 9 ta raqamdan iborat bo'lgan raqamlarni qabul qilish
     if not re.fullmatch(r'^(\+998[0-9]{9}|[0-9]{9})$', tel):
         await message.answer("❌ Raqamni to'g'ri formatda kiriting.\nMasalan: +998901234567 yoki 901234567")
         return
     
-    # Agar +998 bo'lmasa, qo'shib qo'yamiz
     if not tel.startswith('+998'):
         tel = '+998' + tel
     
@@ -92,12 +89,10 @@ async def get_tel(message: types.Message, state: FSMContext):
 @router.message(StateFilter(RegisterState.parent_tel))
 async def get_parent_tel(message: types.Message, state: FSMContext):
     parent_tel = message.text.strip()
-    # Telefon raqam formatini tekshirish
     if not re.fullmatch(r'^(\+998[0-9]{9}|[0-9]{9})$', parent_tel):
         await message.answer("❌ Raqamni to'g'ri formatda kiriting.\nMasalan: +998901234567 yoki 901234567")
         return
     
-    # Agar +998 bo'lmasa, qo'shib qo'yamiz
     if not parent_tel.startswith('+998'):
         parent_tel = '+998' + parent_tel
         
@@ -118,7 +113,6 @@ async def get_address(message: types.Message, state: FSMContext):
     await state.update_data({"address": address})
     data = await state.get_data()
     
-    # Telefon raqamlarini to'plash
     phone_numbers = []
     if 'tg_tel' in data:
         phone_numbers.append(f"📱 Telegram: {data['tg_tel']}")
@@ -139,3 +133,33 @@ async def get_address(message: types.Message, state: FSMContext):
     
     await message.answer(text, reply_markup=register_confirm)
     await state.set_state(RegisterState.confirm)
+
+@router.callback_query(ChechCall.filter(), RegisterState.confirm)
+async def get_check(call: CallbackQuery, callback_data: ChechCall, state: FSMContext):
+    check = callback_data.checks
+    data = await state.get_data()
+    await call.answer(cache_time=60)
+    
+    try:
+        await call.message.delete()
+    except Exception as e:
+        print("Xabarni o'chirishda xatolik:", e)
+    
+    if check is True:
+        phone_numbers = []
+        if 'tg_tel' in data:
+            phone_numbers.append(f"📱 Telegram: {data['tg_tel']}")
+        if 'tel' in data and data['tel'] != data.get('tg_tel'):
+            phone_numbers.append(f"📞 Asosiy: {data['tel']}")
+        if 'parent_tel' in data:
+            phone_numbers.append(f"👨‍👩‍👦 Ota-ona: {data['parent_tel']}")
+        phone_list = "\n".join(phone_numbers)
+        
+        text = (
+            f"Yangi foydalanuvchi ro'yxatdan o'tdi:\n\n"
+            f"<b>👤 F.I.Sh:</b> {data['fio']}\n"
+            f"<b>🆔 JSHSHIR:</b> {data['pnfl']}\n"
+            f"<b>📞 Telefon raqamlar:</b>\n{phone_list}\n"
+            f"<b>📍 Manzil:</b> {data['address']}"
+        )
+        await bot.send_message(chat_id=ADMINS[0], text=text)
