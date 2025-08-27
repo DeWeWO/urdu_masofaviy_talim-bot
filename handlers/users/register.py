@@ -81,4 +81,4 @@ async def get_parent_tel(message: types.Message, state: FSMContext):
         if key in data:
             phone_numbers.append(data[key])
     await state.update_data({"phones": phone_numbers})
-    await message.answer("📍 Manzilingizni to'liq kiriting.\n<i>Namuma: Xorazm viloyati Urganch shahar Mahalla MFY Ko'cha nomi uy</i>")
+    await message.answer("📍 Manzilingizni to'liq kiriting.\n<i>Namuma: Xorazm viloyati Urganch shahar Mahalla MFY Ko'cha nomi uy</i>" )
