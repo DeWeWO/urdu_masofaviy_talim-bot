@@ -13,43 +13,74 @@ from loader import db, bot
 
 router = Router()
 
+async def delete_message_safe(chat_id: int, message_id: int):
+    try:
+        await bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except Exception as e:
+        print(f"Xabarni o'chirishda xatolik: {e}")
+
+async def delete_messages_safe(chat_id: int, message_ids: list):
+    for msg_id in message_ids:
+        if msg_id:
+            await delete_message_safe(chat_id, msg_id)
+
 @router.message(F.text == "👤 Ro'yxatdan o'tish")
 async def start_register(message: types.Message, state: FSMContext):
-    await message.answer(
+    await delete_message_safe(message.chat.id, message.message_id)
+    sent_message = await message.answer(
         "<b>Familiya Ism Sharifingizni to'liq kiriting:</b>\n\n"
         "<i>Na'muna: Abdullayev Abdulla Abdulla o'g'li</i>",
         reply_markup=ReplyKeyboardRemove()
     )
+    await state.update_data({"last_bot_message": sent_message.message_id})
     await state.set_state(RegisterState.fio)
 
 @router.message(StateFilter(RegisterState.fio))
 async def get_fio(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    await delete_message_safe(message.chat.id, message.message_id)
+    if data.get("last_bot_message"):
+        await delete_message_safe(message.chat.id, data["last_bot_message"])
     fio = message.text.strip()
     if fio.count(" ") < 2 or len(fio) < 10:
-        await message.answer("❌ F.I.Sh ni to'liq kirtmadingiz.")
+        sent_message = await message.answer("❌ F.I.Sh ni to'liq kirtmadingiz.")
+        await state.update_data({"last_bot_message": sent_message.message_id})
         return
     await state.update_data({"fio": fio})
-    await message.answer("JSHSHIR ingizni kiriting.\n14 raqamdan iborat bo'lishi shart.")
+    sent_message = await message.answer("JSHSHIR ingizni kiriting.\n14 raqamdan iborat bo'lishi shart.")
+    await state.update_data({"last_bot_message": sent_message.message_id})
     await state.set_state(RegisterState.pnfl)
 
 @router.message(StateFilter(RegisterState.pnfl))
 async def get_pnfl(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    await delete_message_safe(message.chat.id, message.message_id)
+    if data.get("last_bot_message"):
+        await delete_message_safe(message.chat.id, data["last_bot_message"])
     pnfl = message.text.strip()
     if not pnfl.isdigit() or len(pnfl) != 14:
-        await message.answer("❌ JSHSHIR noto'g'ri. 14 raqamdan iborat bo'lishi shart.")
+        sent_message = await message.answer("❌ JSHSHIR noto'g'ri. 14 raqamdan iborat bo'lishi shart.")
+        await state.update_data({"last_bot_message": sent_message.message_id})
         return
     await state.update_data({"pnfl": pnfl})
-    await message.answer("☎ Telegram telefon raqamingizni ulashing", reply_markup=share_contact())
+    sent_message = await message.answer("☎ Telegram telefon raqamingizni ulashing", reply_markup=share_contact())
+    await state.update_data({"last_bot_message": sent_message.message_id})
     await state.set_state(RegisterState.tg_tel)
 
 @router.message(StateFilter(RegisterState.tg_tel))
 async def get_tg_tel(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    await delete_message_safe(message.chat.id, message.message_id)
+    if data.get("last_bot_message"):
+        await delete_message_safe(message.chat.id, data["last_bot_message"])
     if message.contact and message.contact.phone_number:
         tg_tel = message.contact.phone_number
         await state.update_data({"tg_tel": tg_tel})
-        await message.answer("Bu siz ishlatadigan asosiy telefon raqammi?", reply_markup=phone_check_kb_simple())
+        sent_message = await message.answer("Bu siz ishlatadigan asosiy telefon raqammi?", reply_markup=phone_check_kb_simple())
+        await state.update_data({"last_bot_message": sent_message.message_id})
     else:
-        await message.answer("❌ Raqamingizni kontakt sifatida ulashing.", reply_markup=share_contact())
+        sent_message = await message.answer("❌ Raqamingizni kontakt sifatida ulashing.", reply_markup=share_contact())
+        await state.update_data({"last_bot_message": sent_message.message_id})
 
 @router.callback_query(F.data.in_(['phone_check_yes', 'phone_check_no']))
 async def handle_check_phone_simple(call: CallbackQuery, state: FSMContext):
@@ -57,49 +88,67 @@ async def handle_check_phone_simple(call: CallbackQuery, state: FSMContext):
     current_state = await state.get_state()
     if current_state != RegisterState.tg_tel:
         return
-    try:
-        await call.message.delete()
-    except:
-        pass
+    data = await state.get_data()
+    if data.get("last_bot_message"):
+        await delete_message_safe(call.message.chat.id, data["last_bot_message"])
     if call.data == 'phone_check_yes':
-        await call.message.answer("👨‍👩‍👦 Ota-onangizni telefon raqamini kiriting:", reply_markup=ReplyKeyboardRemove())
+        sent_message = await call.message.answer("👨‍👩‍👦 Ota-onangizni telefon raqamini kiriting:", reply_markup=ReplyKeyboardRemove())
+        await state.update_data({"last_bot_message": sent_message.message_id})
         await state.set_state(RegisterState.parent_tel)
     else:
-        await call.message.answer("📱 Iltimos o'zingiz doimiy foydalanadigan telefon raqamingizni kiriting:", reply_markup=ReplyKeyboardRemove())
+        sent_message = await call.message.answer("📱 Iltimos o'zingiz doimiy foydalanadigan telefon raqamingizni kiriting:", reply_markup=ReplyKeyboardRemove())
+        await state.update_data({"last_bot_message": sent_message.message_id})
         await state.set_state(RegisterState.tel)
 
 @router.message(StateFilter(RegisterState.tel))
 async def get_tel(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    await delete_message_safe(message.chat.id, message.message_id)
+    if data.get("last_bot_message"):
+        await delete_message_safe(message.chat.id, data["last_bot_message"])
     tel = message.text.strip()
     if not re.fullmatch(r'^(\+998[0-9]{9}|[0-9]{9})$', tel):
-        await message.answer("❌ Raqamni to'g'ri formatda kiriting.\nMasalan: +998901234567 yoki 901234567")
+        sent_message = await message.answer("❌ Raqamni to'g'ri formatda kiriting.\nMasalan: +998901234567 yoki 901234567")
+        await state.update_data({"last_bot_message": sent_message.message_id})
         return
     if not tel.startswith('+998'):
         tel = '+998' + tel
     await state.update_data({"tel": tel})
-    await message.answer("👨‍👩‍👦 Ota-onangizni telefon raqamini kiriting:")
+    sent_message = await message.answer("👨‍👩‍👦 Ota-onangizni telefon raqamini kiriting:")
+    await state.update_data({"last_bot_message": sent_message.message_id})
     await state.set_state(RegisterState.parent_tel)
 
 @router.message(StateFilter(RegisterState.parent_tel))
 async def get_parent_tel(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    await delete_message_safe(message.chat.id, message.message_id)
+    if data.get("last_bot_message"):
+        await delete_message_safe(message.chat.id, data["last_bot_message"])
     parent_tel = message.text.strip()
     if not re.fullmatch(r'^(\+998[0-9]{9}|[0-9]{9})$', parent_tel):
-        await message.answer("❌ Raqamni to'g'ri formatda kiriting.\nMasalan: +998901234567 yoki 901234567")
+        sent_message = await message.answer("❌ Raqamni to'g'ri formatda kiriting.\nMasalan: +998901234567 yoki 901234567")
+        await state.update_data({"last_bot_message": sent_message.message_id})
         return
     if not parent_tel.startswith('+998'):
         parent_tel = '+998' + parent_tel
     await state.update_data({"parent_tel": parent_tel})
-    await message.answer(
+    sent_message = await message.answer(
         "📍 Manzilingizni to'liq kiriting.\n"
         "<i>Namuna: Xorazm viloyati Urganch shahar Mahalla MFY Ko'cha nomi uy raqami</i>"
     )
+    await state.update_data({"last_bot_message": sent_message.message_id})
     await state.set_state(RegisterState.address)
 
 @router.message(StateFilter(RegisterState.address))
 async def get_address(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    await delete_message_safe(message.chat.id, message.message_id)
+    if data.get("last_bot_message"):
+        await delete_message_safe(message.chat.id, data["last_bot_message"])
     address = message.text.strip()
     if len(address) < 20:
-        await message.answer("❌ Iltimos manzilingizni namunadagi kabi to'liq kiriting.")
+        sent_message = await message.answer("❌ Iltimos manzilingizni namunadagi kabi to'liq kiriting.")
+        await state.update_data({"last_bot_message": sent_message.message_id})
         return
     await state.update_data({"address": address})
     data = await state.get_data()
@@ -118,7 +167,8 @@ async def get_address(message: types.Message, state: FSMContext):
         f"<b>📞 Telefon raqamlar:</b>\n{phone_list}\n"
         f"<b>📍 Manzil:</b> {data['address']}"
     )
-    await message.answer(text, reply_markup=register_confirm)
+    sent_message = await message.answer(text, reply_markup=register_confirm)
+    await state.update_data({"last_bot_message": sent_message.message_id})
     await state.set_state(RegisterState.confirm)
 
 @router.callback_query(ChechCall.filter(), RegisterState.confirm)
@@ -126,28 +176,22 @@ async def get_check(call: CallbackQuery, callback_data: ChechCall, state: FSMCon
     check = callback_data.checks
     data = await state.get_data()
     await call.answer(cache_time=60)
-    try:
-        await call.message.delete()
-    except Exception as e:
-        print("Xabarni o'chirishda xatolik:", e)
-    
+    if data.get("last_bot_message"):
+        await delete_message_safe(call.message.chat.id, data["last_bot_message"])
     if check:
         clean_data = {k: v.strip() if isinstance(v, str) and v.strip() else None 
                     for k, v in data.items()}
-
         phone_numbers = [
             f"📱 Telegram: {clean_data['tg_tel']}" if clean_data.get('tg_tel') else None,
             f"📞 Asosiy: {clean_data['tel']}" if clean_data.get('tel') and clean_data['tel'] != clean_data.get('tg_tel') else None,
             f"👨‍👩‍👦 Ota-ona: {clean_data['parent_tel']}" if clean_data.get('parent_tel') else None,
         ]
         phone_numbers = list(filter(None, phone_numbers))
-
         phone_section = (
             "<b>📞 Telefon raqamlar:</b>\n" + "\n".join(phone_numbers) + "\n"
             if phone_numbers else
             "<b>📞 Telefon raqamlar:</b> Kiritilmagan\n"
         )
-
         text = (
             f"Yangi foydalanuvchi ro'yxatdan o'tdi:\n\n"
             f"<b>👤 F.I.Sh:</b> {clean_data['fio']}\n"
@@ -155,7 +199,6 @@ async def get_check(call: CallbackQuery, callback_data: ChechCall, state: FSMCon
             f"{phone_section}"
             f"<b>📍 Manzil:</b> {clean_data['address']}"
         )
-
         try:
             reg = await api_client.update_register(
                 telegram_id=int(call.from_user.id),
@@ -169,7 +212,6 @@ async def get_check(call: CallbackQuery, callback_data: ChechCall, state: FSMCon
                 is_active=False,
                 is_teacher=False
             )
-            print("API javobi:", reg or "API dan javob kelmadi")
             if reg:
                 user_msg = (
                     "✅ Siz ro'yxatdan muvaffaqiyatli o'tdingiz!\n\n"
@@ -199,5 +241,4 @@ async def get_check(call: CallbackQuery, callback_data: ChechCall, state: FSMCon
             text="❌ Siz ro'yxatdan o'tishni bekor qildingiz.",
             reply_markup=register_markup()
         )
-
     await state.clear()
