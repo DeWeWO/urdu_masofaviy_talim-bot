@@ -4,7 +4,7 @@ from filters import ChatPrivateFilter
 
 
 def setup_routers() -> Router:
-    from .users import admin, start, help, add_group, register
+    from .users import admin, start, help, add_group, register, profile
     from .errors import error_handler
 
     router = Router()
@@ -13,7 +13,7 @@ def setup_routers() -> Router:
     start.router.message.filter(ChatPrivateFilter(chat_type=["private"]))
 
     router.include_routers(admin.router, start.router, help.router,
-        add_group.router, register.router, error_handler.router
+        add_group.router, register.router, profile.router, error_handler.router
     )
 
     return router

@@ -3,9 +3,7 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
 def register_markup():
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
-        [
-            KeyboardButton(text="👤 Ro'yxatdan o'tish")
-        ]
+        [KeyboardButton(text="📝 Registratsiya")],
     ])
 
 def share_contact():
@@ -21,3 +19,15 @@ def add_group():
         [KeyboardButton(text="👥 Guruhga qo'shish")]
     ], resize_keyboard=True, one_time_keyboard=False)
     return murkup
+
+def update_info_markup():
+    """Ma'lumotlarni yangilash uchun klaviatura"""
+    markup = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📝 Ma'lumotlarni yangilash")],
+            [KeyboardButton(text="👤 Mening ma'lumotlarim")],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=False
+    )
+    return markup

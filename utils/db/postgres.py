@@ -149,6 +149,22 @@ class APIClient:
             elif isinstance(v, bool):
                 filtered_payload[k] = v
         return await self.request("PATCH", f"register/{telegram_id}/", json=filtered_payload)
+    
+    async def get_all_users_basic_info(self) -> Optional[Dict]:
+        """Barcha foydalanuvchilarning telegram_id va pnfl ma'lumotlarini olish"""
+        return await self.request("GET", "users/basic-info/")
+
+    async def check_user_status(self, telegram_id: int) -> Optional[Dict]:
+        """Telegram ID bo'yicha foydalanuvchi holatini tekshirish"""
+        return await self.request("GET", f"users/check-status/{telegram_id}/")
+
+    async def get_users_by_status(self) -> Optional[Dict]:
+        """Status bo'yicha foydalanuvchilarni olish"""
+        return await self.request("GET", "users/by-status/")
+
+    async def get_user_full_info(self, telegram_id: int) -> Optional[Dict]:
+        """Foydalanuvchining to'liq ma'lumotlarini olish"""
+        return await self.request("GET", f"users/{telegram_id}/")
 
     
 api_client = APIClient()

@@ -24,7 +24,7 @@ async def delete_messages_safe(chat_id: int, message_ids: list):
         if msg_id:
             await delete_message_safe(chat_id, msg_id)
 
-@router.message(F.text == "👤 Ro'yxatdan o'tish")
+@router.message(F.text == "📝 Registratsiya")
 async def start_register(message: types.Message, state: FSMContext):
     await delete_message_safe(message.chat.id, message.message_id)
     sent_message = await message.answer(
