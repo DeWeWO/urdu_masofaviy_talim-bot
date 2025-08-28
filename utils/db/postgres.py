@@ -111,7 +111,6 @@ class APIClient:
             "is_active": is_active,
             "is_teacher": is_teacher,
         }
-        # None qiymatlarni yubormaslik uchun filtr
         payload = {k: v for k, v in payload.items() if v is not None}
         
         return await self.request("POST", "register/", json=payload)
@@ -140,19 +139,15 @@ class APIClient:
             "is_active": is_active,
             "is_teacher": is_teacher,
         }
-        # None qiymatlarni yubormaslik uchun filtr
+        
         filtered_payload = {}
         for k, v in payload.items():
             if v is not None and v != "":
-                # Agar string bo'lsa va faqat bo'shliqlardan iborat bo'lsa, uni ham chiqarib tashlash
                 if isinstance(v, str) and not v.strip():
                     continue
                 filtered_payload[k] = v
-            elif isinstance(v, bool):  # bool qiymatlar uchun alohida tekshirish
+            elif isinstance(v, bool):
                 filtered_payload[k] = v
-        
-        print(f"API-ga yuborilayotgan ma'lumotlar: {filtered_payload}")  # Debug uchun
-        
         return await self.request("PATCH", f"register/{telegram_id}/", json=filtered_payload)
 
     

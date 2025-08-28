@@ -38,7 +38,6 @@ async def get_pnfl(message: types.Message, state: FSMContext):
     if not pnfl.isdigit() or len(pnfl) != 14:
         await message.answer("❌ JSHSHIR noto'g'ri. 14 raqamdan iborat bo'lishi shart.")
         return
-    
     await state.update_data({"pnfl": pnfl})
     await message.answer("☎ Telegram telefon raqamingizni ulashing", reply_markup=share_contact())
     await state.set_state(RegisterState.tg_tel)
@@ -55,16 +54,13 @@ async def get_tg_tel(message: types.Message, state: FSMContext):
 @router.callback_query(F.data.in_(['phone_check_yes', 'phone_check_no']))
 async def handle_check_phone_simple(call: CallbackQuery, state: FSMContext):
     await call.answer()
-    
     current_state = await state.get_state()
     if current_state != RegisterState.tg_tel:
         return
-    
     try:
         await call.message.delete()
     except:
         pass
-    
     if call.data == 'phone_check_yes':
         await call.message.answer("👨‍👩‍👦 Ota-onangizni telefon raqamini kiriting:", reply_markup=ReplyKeyboardRemove())
         await state.set_state(RegisterState.parent_tel)
@@ -78,10 +74,8 @@ async def get_tel(message: types.Message, state: FSMContext):
     if not re.fullmatch(r'^(\+998[0-9]{9}|[0-9]{9})$', tel):
         await message.answer("❌ Raqamni to'g'ri formatda kiriting.\nMasalan: +998901234567 yoki 901234567")
         return
-    
     if not tel.startswith('+998'):
         tel = '+998' + tel
-    
     await state.update_data({"tel": tel})
     await message.answer("👨‍👩‍👦 Ota-onangizni telefon raqamini kiriting:")
     await state.set_state(RegisterState.parent_tel)
@@ -92,10 +86,8 @@ async def get_parent_tel(message: types.Message, state: FSMContext):
     if not re.fullmatch(r'^(\+998[0-9]{9}|[0-9]{9})$', parent_tel):
         await message.answer("❌ Raqamni to'g'ri formatda kiriting.\nMasalan: +998901234567 yoki 901234567")
         return
-    
     if not parent_tel.startswith('+998'):
         parent_tel = '+998' + parent_tel
-        
     await state.update_data({"parent_tel": parent_tel})
     await message.answer(
         "📍 Manzilingizni to'liq kiriting.\n"
@@ -109,10 +101,8 @@ async def get_address(message: types.Message, state: FSMContext):
     if len(address) < 20:
         await message.answer("❌ Iltimos manzilingizni namunadagi kabi to'liq kiriting.")
         return
-        
     await state.update_data({"address": address})
     data = await state.get_data()
-    
     phone_numbers = []
     if 'tg_tel' in data:
         phone_numbers.append(f"📱 Telegram: {data['tg_tel']}")
@@ -120,17 +110,14 @@ async def get_address(message: types.Message, state: FSMContext):
         phone_numbers.append(f"📞 Asosiy: {data['tel']}")
     if 'parent_tel' in data:
         phone_numbers.append(f"👨‍👩‍👦 Ota-ona: {data['parent_tel']}")
-    
     phone_list = "\n".join(phone_numbers)
-    
     text = (
-        f"Ushbu ma'lumotlaringiz to'g'riligini tasdiqlang:\n\n"
+        f"📝✅ Ushbu ma'lumotlaringiz to'g'riligini tasdiqlang:\n\n"
         f"<b>👤 F.I.Sh:</b> {data['fio']}\n"
         f"<b>🆔 JSHSHIR:</b> {data['pnfl']}\n"
         f"<b>📞 Telefon raqamlar:</b>\n{phone_list}\n"
         f"<b>📍 Manzil:</b> {data['address']}"
     )
-    
     await message.answer(text, reply_markup=register_confirm)
     await state.set_state(RegisterState.confirm)
 
@@ -139,44 +126,28 @@ async def get_check(call: CallbackQuery, callback_data: ChechCall, state: FSMCon
     check = callback_data.checks
     data = await state.get_data()
     await call.answer(cache_time=60)
-    
     try:
         await call.message.delete()
     except Exception as e:
         print("Xabarni o'chirishda xatolik:", e)
     
-    if check is True:
-        # Telefon raqamlarini tekshirish va tayyorlash
-        phone_numbers = []
-        
-        # Ma'lumotlarni oldindan tozalash
-        clean_data = {}
-        for key, value in data.items():
-            if isinstance(value, str):
-                clean_value = value.strip()
-                clean_data[key] = clean_value if clean_value else None
-            else:
-                clean_data[key] = value
-        
-        # Telegram telefon
-        if clean_data.get('tg_tel'):
-            phone_numbers.append(f"📱 Telegram: {clean_data['tg_tel']}")
-        
-        # Asosiy telefon (Telegram dan farqli bo'lsa)
-        if clean_data.get('tel') and clean_data['tel'] != clean_data.get('tg_tel'):
-            phone_numbers.append(f"📞 Asosiy: {clean_data['tel']}")
-        
-        # Ota-ona telefon
-        if clean_data.get('parent_tel'):
-            phone_numbers.append(f"👨‍👩‍👦 Ota-ona: {clean_data['parent_tel']}")
-        
-        # Xabar tayyorlash
-        if phone_numbers:
-            phone_list = "\n".join(phone_numbers)
-            phone_section = f"<b>📞 Telefon raqamlar:</b>\n{phone_list}\n"
-        else:
-            phone_section = "<b>📞 Telefon raqamlar:</b> Kiritilmagan\n"
-        
+    if check:
+        clean_data = {k: v.strip() if isinstance(v, str) and v.strip() else None 
+                    for k, v in data.items()}
+
+        phone_numbers = [
+            f"📱 Telegram: {clean_data['tg_tel']}" if clean_data.get('tg_tel') else None,
+            f"📞 Asosiy: {clean_data['tel']}" if clean_data.get('tel') and clean_data['tel'] != clean_data.get('tg_tel') else None,
+            f"👨‍👩‍👦 Ota-ona: {clean_data['parent_tel']}" if clean_data.get('parent_tel') else None,
+        ]
+        phone_numbers = list(filter(None, phone_numbers))
+
+        phone_section = (
+            "<b>📞 Telefon raqamlar:</b>\n" + "\n".join(phone_numbers) + "\n"
+            if phone_numbers else
+            "<b>📞 Telefon raqamlar:</b> Kiritilmagan\n"
+        )
+
         text = (
             f"Yangi foydalanuvchi ro'yxatdan o'tdi:\n\n"
             f"<b>👤 F.I.Sh:</b> {clean_data['fio']}\n"
@@ -184,34 +155,41 @@ async def get_check(call: CallbackQuery, callback_data: ChechCall, state: FSMCon
             f"{phone_section}"
             f"<b>📍 Manzil:</b> {clean_data['address']}"
         )
-        
-        await bot.send_message(chat_id=ADMINS[0], text=text)
-        
+
         try:
-            # telegram_id ni int ga o'tkazish
-            user_telegram_id = int(call.from_user.id)
-            
-            # API-ga yuborish
             reg = await api_client.update_register(
-                telegram_id=user_telegram_id,  # int sifatida yuborish
-                username=call.from_user.username,  # str() qilmaslik
-                fio=clean_data['fio'],  # {} qavslarsiz
-                pnfl=clean_data['pnfl'],  # {} qavslarsiz
-                tg_tel=clean_data.get('tg_tel'),  # None bo'lishi mumkin
-                tel=clean_data.get('tel'),  # None bo'lishi mumkin
-                parent_tel=clean_data.get('parent_tel'),  # None bo'lishi mumkin
-                address=clean_data['address'],  # {} qavslarsiz
+                telegram_id=int(call.from_user.id),
+                username=call.from_user.username,
+                fio=clean_data['fio'],
+                pnfl=clean_data['pnfl'],
+                tg_tel=clean_data.get('tg_tel'),
+                tel=clean_data.get('tel'),
+                parent_tel=clean_data.get('parent_tel'),
+                address=clean_data['address'],
                 is_active=False,
                 is_teacher=False
             )
-            
+            print("API javobi:", reg or "API dan javob kelmadi")
             if reg:
+                user_msg = (
+                    "✅ Siz ro'yxatdan muvaffaqiyatli o'tdingiz!\n\n"
+                    "🔔 Ma'lumotlaringiz admin tomonidan tekshiriladi."
+                )
+                await bot.send_message(chat_id=call.from_user.id, text=user_msg)
+                await bot.send_message(chat_id=ADMINS[0], text=text)
                 print("Foydalanuvchi muvaffaqiyatli ro'yxatga olindi")
-                print(f"API javobi: {reg}")
             else:
+                await bot.send_message(
+                    chat_id=call.from_user.id,
+                    text="❌ Ro'yxatdan o'tishda muammo yuz berdi. Iltimos, qaytadan urinib ko'ring.",
+                    reply_markup=register_markup()
+                )
                 print("API dan javob kelmadi")
-                
         except Exception as e:
+            await bot.send_message(
+                chat_id=call.from_user.id,
+                text="❌ Ro'yxatdan o'tishda xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.",
+                reply_markup=register_markup()
+            )
             print(f"Ma'lumotlarni bazaga yozishda xatolik: {e}")
-            import traceback
-            traceback.print_exc()  # To'liq xato ma'lumotini chiqarish
+            import traceback; traceback.print_exc()
