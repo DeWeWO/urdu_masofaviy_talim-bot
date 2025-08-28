@@ -235,7 +235,7 @@ async def get_check(call: CallbackQuery, callback_data: ChechCall, state: FSMCon
             )
             print(f"Ma'lumotlarni bazaga yozishda xatolik: {e}")
             import traceback; traceback.print_exc()
-    else:  # ❌ Foydalanuvchi tasdiqlamadi
+    else:
         await bot.send_message(
             chat_id=call.from_user.id,
             text="❌ Siz ro'yxatdan o'tishni bekor qildingiz.",
