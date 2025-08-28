@@ -25,8 +25,7 @@ async def start_register(message: types.Message, state: FSMContext):
 @router.message(StateFilter(RegisterState.fio))
 async def get_fio(message: types.Message, state: FSMContext):
     fio = message.text.strip()
-    words = fio.split()
-    if len(words) <= 2:
+    if fio.count(" ") < 2 or len(fio) < 10:
         await message.answer("❌ F.I.Sh ni to'liq kirtmadingiz.")
         return
     await state.update_data({"fio": fio})
