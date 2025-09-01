@@ -10,6 +10,7 @@ from utils.telethon_client import telethon_client
 
 router = Router()
 
+
 @router.message(F.text == "👥 Guruhga qo'shish")
 async def start_register(message: types.Message):
     text = "Guruhga qo'shish uchun pastdagi tugmani bosib guruh tanlang!"
