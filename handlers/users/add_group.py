@@ -183,3 +183,4 @@ async def new_member_added(event: types.ChatMemberUpdated):
                     )
                 except Exception:
                     pass
+
