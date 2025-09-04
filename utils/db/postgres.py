@@ -122,6 +122,7 @@ class APIClient:
         telegram_id: int,
         username: Optional[str] = None,
         fio: Optional[str] = None,
+        hemis_id: Optional[int] = None,
         pnfl: Optional[str] = None,
         tg_tel: Optional[str] = None,
         tel: Optional[str] = None,
@@ -133,6 +134,7 @@ class APIClient:
         payload = {
             "username": username,
             "fio": fio,
+            "hemis_id": hemis_id if hemis_id is not None else None,
             "pnfl": pnfl,
             "tg_tel": tg_tel,
             "tel": tel,

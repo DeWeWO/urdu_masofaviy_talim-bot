@@ -2,6 +2,7 @@ from aiogram.fsm.state import StatesGroup, State
 
 class RegisterState(StatesGroup):
     fio = State()
+    hemis_id = State()
     pnfl = State()
     tg_tel = State()
     tel = State()
