@@ -50,10 +50,12 @@ class APIClient:
 
             except (ClientError, asyncio.TimeoutError):
                 if attempt == max_retries - 1:
+                    logger.error(f"API request failed after {max_retries} attempts: {url}")
                     return None
                 await asyncio.sleep(1)
 
-            except Exception:
+            except Exception as e:
+                logger.error(f"Unexpected error during API request: {e}")
                 return None
 
     async def _handle_response(self, resp, return_html=False) -> Optional[Dict[str, Any]]:
@@ -72,9 +74,11 @@ class APIClient:
                     else:
                         return {"data": await resp.text()}
             else:
+                logger.error(f"API returned error status {resp.status}: {await resp.text()}")
                 return None
                 
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error handling response: {e}")
             return None
     
     async def add_group(self, group_name: str, group_id: int) -> Optional[Dict]:
@@ -82,12 +86,13 @@ class APIClient:
             "group_name": group_name,
             "group_id": group_id
         }
+        logger.info(f"Adding group: {group_name} (ID: {group_id})")
         return await self.request("POST", "telegram/group/add/", json=payload)
     
     async def add_register(
         self,
         telegram_id: int,
-        group_id: int,
+        group_ids: List[int],
         username: Optional[str] = None,
         fio: Optional[str] = None,
         hemis_id: Optional[int] = None,
@@ -103,7 +108,7 @@ class APIClient:
             "telegram_id": telegram_id,
             "username": username,
             "fio": fio,
-            "group_id": group_id,
+            "group_ids": group_ids,  # ✅ TO'G'RI - backend "group_ids" kutadi
             "hemis_id": hemis_id if hemis_id is not None else None,
             "pnfl": pnfl,
             "tg_tel": tg_tel,
@@ -113,8 +118,11 @@ class APIClient:
             "is_active": is_active,
             "is_teacher": is_teacher,
         }
-        payload = {k: v for k, v in payload.items() if v is not None}
         
+        # Bo'sh qiymatlarni olib tashlash
+        payload = {k: v for k, v in payload.items() if v is not None and v != ""}
+        
+        logger.info(f"Adding register for user {telegram_id} to groups {group_ids}")
         return await self.request("POST", "register/", json=payload)
     
     async def update_register(
@@ -130,6 +138,7 @@ class APIClient:
         address: Optional[str] = None,
         is_active: Optional[bool] = None,
         is_teacher: Optional[bool] = None,
+        group_ids: Optional[List[int]] = None,
     ) -> Optional[Dict]:
         payload = {
             "username": username,
@@ -142,6 +151,7 @@ class APIClient:
             "address": address,
             "is_active": is_active,
             "is_teacher": is_teacher,
+            "group_ids": group_ids,  # ✅ TO'G'RI
         }
         
         filtered_payload = {}
@@ -152,6 +162,8 @@ class APIClient:
                 filtered_payload[k] = v
             elif isinstance(v, bool):
                 filtered_payload[k] = v
+                
+        logger.info(f"Updating register for user {telegram_id}")
         return await self.request("PATCH", f"register/{telegram_id}/", json=filtered_payload)
     
     async def get_all_users_basic_info(self) -> Optional[Dict]:
