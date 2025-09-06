@@ -294,7 +294,40 @@ async def _handle_member_leave(user_data: dict, group_id: int, group_title: str,
     )
     await _send_to_admins(leave_text)
     
-    # 2. Faoliyat yozuvini qo'shish
+    # 2. Register jadvalidan guruhni o'chirish
+    try:
+        existing_user = await api_client.get_user_full_info(user_data["id"])
+        
+        if existing_user and existing_user.get("success") and existing_user.get("data"):
+            existing_groups = [g["group_id"] for g in existing_user["data"].get("register_groups", [])]
+            
+            # Chiqib ketgan guruhni olib tashlash
+            remaining_groups = [g for g in existing_groups if g != group_id]
+            
+            if remaining_groups != existing_groups:  # O'zgarish bo'lsa
+                update_result = await api_client.update_register(
+                    telegram_id=user_data["id"],
+                    username=user_data["username"],
+                    fio=user_data["full_name"],
+                    group_ids=remaining_groups
+                )
+                
+                if update_result and isinstance(update_result, dict):
+                    if update_result.get("telegram_id") or update_result.get("id"):
+                        logging.info(f"✅ User {user_data['id']} guruhlar ro'yxati yangilandi: {remaining_groups}")
+                    elif update_result.get("success") is False:
+                        logging.error(f"Register yangilash xatolik: {update_result.get('error')}")
+                else:
+                    logging.error(f"Register yangilash javob xatolik: {update_result}")
+            else:
+                logging.info(f"User {user_data['id']} uchun o'zgarish kerak emas")
+        else:
+            logging.warning(f"User {user_data['id']} register jadvalida topilmadi")
+    
+    except Exception as e:
+        logging.warning(f"Register jadvalini yangilashda xatolik: {e}")
+    
+    # 3. Faoliyat yozuvini qo'shish
     try:
         activity_result = await api_client.add_member_activity(
             telegram_id=user_data["id"],
