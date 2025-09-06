@@ -181,6 +181,75 @@ class APIClient:
     async def get_user_full_info(self, telegram_id: int) -> Optional[Dict]:
         """Foydalanuvchining to'liq ma'lumotlarini olish"""
         return await self.request("GET", f"users/{telegram_id}/")
+    
+    async def add_member_activity(
+        self,
+        telegram_id: int,
+        group_id: int,
+        activity_type: str,  # 'join', 'leave', 'kicked', 'removed'
+        action_by: str,      # 'self', 'admin', 'system', 'invite_link'
+        activity_time: str,  # ISO format: "2025-09-06T13:30:25"
+        admin_telegram_id: Optional[int] = None,
+        admin_name: Optional[str] = None,
+        admin_username: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> Optional[Dict]:
+        """A'zo faoliyatini backend ga yuborish"""
+        payload = {
+            "telegram_id": telegram_id,
+            "group_id": group_id,
+            "activity_type": activity_type,
+            "action_by": action_by,
+            "activity_time": activity_time,
+        }
+        
+        # Ixtiyoriy maydonlar
+        if admin_telegram_id:
+            payload["admin_telegram_id"] = admin_telegram_id
+        if admin_name:
+            payload["admin_name"] = admin_name
+        if admin_username:
+            payload["admin_username"] = admin_username
+        if notes:
+            payload["notes"] = notes
+        
+        # Bo'sh qiymatlarni olib tashlash
+        payload = {k: v for k, v in payload.items() if v is not None and v != ""}
+        
+        logger.info(f"Adding member activity: {activity_type} for user {telegram_id} in group {group_id}")
+        return await self.request("POST", "member-activity/add/", json=payload)
+
+
+    async def get_member_activities(
+        self,
+        telegram_id: Optional[int] = None,
+        group_id: Optional[int] = None,
+        activity_type: Optional[str] = None,
+        date_from: Optional[str] = None,  # 'YYYY-MM-DD'
+        date_to: Optional[str] = None,    # 'YYYY-MM-DD'
+    ) -> Optional[Dict]:
+        """A'zo faoliyatlari ro'yxatini olish"""
+        params = {}
+        
+        if telegram_id:
+            params["telegram_id"] = telegram_id
+        if group_id:
+            params["group_id"] = group_id
+        if activity_type:
+            params["activity_type"] = activity_type
+        if date_from:
+            params["date_from"] = date_from
+        if date_to:
+            params["date_to"] = date_to
+        
+        logger.info(f"Getting member activities with params: {params}")
+        return await self.request("GET", "member-activity/list/", params=params)
+
+
+    async def get_member_activity_stats(self) -> Optional[Dict]:
+        """A'zo faoliyatlari statistikasi"""
+        logger.info("Getting member activity statistics")
+        return await self.request("GET", "member-activity/stats/")
 
     
 api_client = APIClient()
