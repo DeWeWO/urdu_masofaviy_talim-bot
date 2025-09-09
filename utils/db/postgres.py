@@ -250,6 +250,16 @@ class APIClient:
         """A'zo faoliyatlari statistikasi"""
         logger.info("Getting member activity statistics")
         return await self.request("GET", "member-activity/stats/")
+    
+    
+    async def get_user_info(self, telegram_id: int) -> Optional[Dict]:
+        """Telegram ID bo‘yicha foydalanuvchi haqida to‘liq ma’lumot olish"""
+        return await self.request(
+            "GET",
+            f"user-info/",
+            params={"telegram_id": telegram_id}
+        )
+
 
     
 api_client = APIClient()
