@@ -41,11 +41,11 @@ async def forward_user_info(message: Message):
     passport = hemis.get("passport") or "-"
 
     text = (
-        f"👤 {fio}\n"
         f"🆔 Hemis ID: {hemis_id}\n"
+        f"👤 {fio}\n"
         f"📚 Kurs: {course}\n"
         f"👥 Guruh: {student_group}\n"
-        f"🛂 Passport: {passport}\n\n"
+        f"🛂 Passport: {passport}\n"
         f"📱 Telegram tel: {tg_tel}\n"
         f"☎️ Telefon: {tel}\n"
         f"👨‍👩‍👦 Ota-ona tel: {parent_tel}\n"
