@@ -254,12 +254,6 @@ class APIClient:
     
     async def get_user_info(self, telegram_id: int) -> Optional[Dict]:
         """Telegram ID bo‘yicha foydalanuvchi haqida to‘liq ma’lumot olish"""
-        return await self.request(
-            "GET",
-            f"user-info/",
-            params={"telegram_id": telegram_id}
-        )
-
-
+        return await self.request("GET", f"user-info/", params={"telegram_id": telegram_id})
     
 api_client = APIClient()

@@ -3,7 +3,6 @@ from aiogram.types import Message
 from loader import db
 import logging
 
-logger = logging.getLogger(__name__)
 router = Router()
 
 
@@ -17,7 +16,7 @@ async def forward_user_info(message: Message):
 
     try:
         user_data = await db.get_user_info(telegram_id)
-    except Exception as e:
+    except Exception:
         await message.answer("❌ Foydalanuvchi ma’lumotlarini olishda xatolik yuz berdi.")
         return
 
