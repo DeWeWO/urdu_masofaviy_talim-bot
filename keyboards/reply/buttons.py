@@ -16,7 +16,9 @@ def share_contact():
 
 def add_group():
     murkup = ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="👥 Guruhga qo'shish")]
+        [KeyboardButton(text="👥 Guruhga qo'shish")],
+        [KeyboardButton(text="📝 Ma'lumotlarni yangilash")],
+        [KeyboardButton(text="👤 Mening ma'lumotlarim")],
     ], resize_keyboard=True, one_time_keyboard=False)
     return murkup
 

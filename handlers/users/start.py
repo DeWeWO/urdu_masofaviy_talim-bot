@@ -1,8 +1,6 @@
 from aiogram import Router, types
 from aiogram.filters import CommandStart
 from aiogram.types import ReplyKeyboardRemove
-from aiogram.enums.parse_mode import ParseMode
-from aiogram.client.session.middlewares.request_logging import logger
 from loader import db, bot
 from data.config import ADMINS
 from utils.extra_datas import make_title
@@ -58,17 +56,24 @@ async def do_start(message: types.Message):
             else:
                 status_msg = "✅ Sizning hisobingiz tasdiqlangan."
             
+            reply_kb = update_info_markup() if is_active else register_markup()
+
+            # 🔐 Adminlikni tekshiramiz
+            async with api_client as client:
+                admin_data = await client.check_admin(telegram_id)
+
+            if admin_data and admin_data.get("is_admin"):
+                reply_kb = add_group()
+
+
             await message.answer(
-                f"Assalomu alaykum {make_title(fio)}!\n\n"
-                f"🤖 Botimizga xush kelibsiz!\n\n"
-                f"{status_msg}\n\n"
-                "📝 Kerakli bo'lsa, ma'lumotlaringizni yangilashingiz mumkin:",
-                reply_markup=update_info_markup() if is_active else register_markup()
+                f"Assalomu alaykum {full_name}!\n\n",
+                reply_markup=reply_kb
             )
         
         else:
             await message.answer(
-                f"Assalomu alaykum {make_title(fio)}!"
+                f"Assalomu alaykum {make_title(full_name)}!"
                 f"❌ Bu bot siz uchun ishlamaydi.",
                 reply_markup=ReplyKeyboardRemove()
             )

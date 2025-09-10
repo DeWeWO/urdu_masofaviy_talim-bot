@@ -256,4 +256,9 @@ class APIClient:
         """Telegram ID bo‘yicha foydalanuvchi haqida to‘liq ma’lumot olish"""
         return await self.request("GET", f"user-info/", params={"telegram_id": telegram_id})
     
+    async def check_admin(self, telegram_id: int) -> Optional[Dict]:
+        """Foydalanuvchi admin ekanligini tekshirish"""
+        return await self.request("GET", "check-admin/", params={"telegram_id": telegram_id})
+
+    
 api_client = APIClient()
