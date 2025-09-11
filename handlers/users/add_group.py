@@ -51,15 +51,17 @@ async def bot_added_to_group(event: types.ChatMemberUpdated):
             async with api_client as client:
                 resp = await client.add_group(title, group_id)
                 if not resp or (isinstance(resp, dict) and resp.get("success") is False):
-                    logging.error(f"Backendga guruhni yozishda xatolik: {resp}")
-                    await _send_error_to_admin("⚠️ Botni guruhga qo'shishda xatolik bo'ldi.")
+                    error_msg = resp.get("error", "Noma'lum xatolik") if isinstance(resp, dict) else "API javob bermadi"
+                    logging.error(f"Backendga guruhni yozishda xatolik: {error_msg}")
+                    await _send_error_to_admin(f"⚠️ Botni guruhga qo'shishda xatolik bo'ldi: {error_msg}")
                     return
+                else:
+                    logging.info(f"Guruh {group_id} ({title}) muvaffaqiyatli bazaga qo'shildi")
 
             # A'zolarni yig'ish va yozish
             await _process_group_members(group_id)
 
         except Exception as e:
-            logging.exception(f"bot_added_to_group xatolik: {e}")
             await _send_error_to_admin("⚠️ Guruh a'zolarini yozishda xatolik bo'ldi.")
 
 @router.chat_member()
@@ -96,66 +98,114 @@ async def handle_member_changes(event: types.ChatMemberUpdated):
             await _handle_member_leave(user_data, group_id, group_title, event, new_status)
             
     except Exception as e:
-        logging.exception(f"handle_member_changes xatolik: {e}")
         await _send_error_to_admin("A'zo o'zgarishlarini qayta ishlashda xatolik")
 
 async def _process_group_members(group_id: int):
     """Guruh a'zolarini yig'ish va bazaga yozish"""
-    members = []
-    async for user in telethon_client.iter_participants(group_id):
-        if getattr(user, "bot", False):
-            continue
-        full_name = " ".join(filter(None, [user.first_name, user.last_name])).strip() or None
-        members.append({
-            "id": user.id,
-            "username": user.username or None,
-            "full_name": full_name
-        })
+    try:
+        members = []
+        
+        # A'zolarni yig'ish
+        async for user in telethon_client.iter_participants(group_id):
+            if getattr(user, "bot", False):
+                continue
+            
+            full_name = " ".join(filter(None, [user.first_name, user.last_name])).strip() or None
+            members.append({
+                "id": user.id,
+                "username": user.username or None,
+                "full_name": full_name
+            })
 
-    success_count = 0
-    async with api_client as client:
-        for i, member in enumerate(members, start=1):
-            try:
-                # Foydalanuvchining mavjud guruhlarini olish
-                existing_user = await client.get_user_full_info(member["id"])
-                existing_groups = []
-                
-                if existing_user and existing_user.get("success") and existing_user.get("data"):
-                    existing_groups = [g["group_id"] for g in existing_user["data"].get("register_groups", [])]
-                
-                # Yangi guruhni qo'shish (takrorlanmaslik uchun set ishlatamiz)
-                all_groups = list(set(existing_groups + [group_id]))
-                
-                # Foydalanuvchi mavjud bo'lsa yangilash, yo'q bo'lsa yangi qo'shish
-                if existing_user and existing_user.get("success") and existing_user.get("data"):
-                    result = await client.update_register(
-                        telegram_id=member["id"],
-                        username=member["username"],
-                        fio=member["full_name"],
-                        group_ids=all_groups
-                    )
-                else:
-                    result = await client.add_register(
-                        telegram_id=member["id"],
-                        group_ids=[group_id],
-                        username=member["username"],
-                        fio=member["full_name"],
-                        is_active=False,
-                        is_teacher=False
-                    )
-                
-                if result and not (isinstance(result, dict) and result.get("success") is False):
-                    success_count += 1
-                
-            except Exception as e:
-                logging.exception(f"Member {member.get('id')} ni ro'yxatga olishda xatolik: {e}")
+        
+        if not members:
+            await _send_to_admins("⚠️ Guruhda hech qanday a'zo topilmadi yoki barcha a'zolar botlar.")
+            return
 
-            # Har 15 ta foydalanuvchidan keyin biroz kutish
-            if i % 15 == 0:
-                await asyncio.sleep(0.1)
+        success_count = 0
+        failed_count = 0
+        
+        async with api_client as client:
+            for i, member in enumerate(members, start=1):
+                try:                    
+                    # Har doim foydalanuvchini add_register bilan qo'shamiz
+                    # Chunki bir foydalanuvchi bir nechta guruhda bo'lishi mumkin
+                    try:
+                        result = await client.add_register(
+                            telegram_id=member["id"],
+                            group_ids=[group_id],
+                            username=member["username"],
+                            fio=member["full_name"],
+                            is_active=False,
+                            is_teacher=False
+                        )                        
+                    except Exception as add_error:
+                        result = None
+                    
+                    # Natijani tekshirish
+                    if result:
+                        # Muvaffaqiyatli qo'shildi
+                        success_count += 1
+                        
+                    elif result is None:
+                        # API None qaytardi, ehtimol "already exists" xatoligi
+                        
+                        try:
+                            # Mavjud guruhlarni olamiz
+                            existing_user = await client.get_user_full_info(member["id"])
+                            
+                            if existing_user and existing_user.get("success") and existing_user.get("data"):
+                                existing_groups = [g["group_id"] for g in existing_user["data"].get("register_groups", [])]
+                                
+                                # Agar bu guruh allaqachon mavjud bo'lsa
+                                if group_id in existing_groups:
+                                    success_count += 1
+                                else:
+                                    # Yangi guruhni qo'shib update qilamiz
+                                    all_groups = list(set(existing_groups + [group_id]))
+                                    
+                                    update_result = await client.update_register(
+                                        telegram_id=member["id"],
+                                        username=member["username"],
+                                        fio=member["full_name"],
+                                        group_ids=all_groups
+                                    )
+                                                                        
+                                    if update_result and not (isinstance(update_result, dict) and update_result.get("success") is False):
+                                        success_count += 1
+                                    else:
+                                        failed_count += 1
+                            else:
+                                failed_count += 1
+                                
+                        except Exception as update_error:
+                            failed_count += 1
+                    else:
+                        # result False yoki boshqa qiymat
+                        failed_count += 1
+                    
+                except Exception as e:
+                    failed_count += 1
 
-    info_text = f"✅ Guruhdan jami <b>{success_count}</b> ta a'zo bazaga yozildi."
-    await _send_to_admins(info_text)
+                # Har 10 ta foydalanuvchidan keyin biroz kutish
+                if i % 10 == 0:
+                    await asyncio.sleep(0.2)
+
+        # Natija haqida xabar
+        info_text = (
+            f"📊 <b>Guruh a'zolari qayta ishlandi:</b>\n\n"
+            f"✅ <b>Muvaffaqiyatli:</b> {success_count} ta\n"
+            f"❌ <b>Xatolik:</b> {failed_count} ta\n"
+            f"📋 <b>Jami a'zolar:</b> {len(members)} ta"
+        )
+        
+        if failed_count > 0:
+            info_text += f"\n\n⚠️ <b>Eslatma:</b> Ba'zi a'zolarni qo'shishda muammolar bo'ldi. Loglarni tekshiring."
+        
+        await _send_to_admins(info_text)
+        
+    except Exception as e:
+        await _send_error_to_admin(f"⚠️ Guruh a'zolarini qayta ishlashda jiddiy xatolik: {str(e)}")
 
 async def _handle_member_join(user_data: dict, group_id: int, group_title: str, event_date):
     """Yangi a'zo qo'shilganida ishlov berish"""
