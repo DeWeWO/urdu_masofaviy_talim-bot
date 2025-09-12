@@ -48,7 +48,8 @@ class APIClient:
                     async with self.session.request(method, url, **kwargs) as resp:
                         return await self._handle_response(resp, return_html)
 
-            except (ClientError, asyncio.TimeoutError):
+            except (ClientError, asyncio.TimeoutError) as e:
+                logger.warning(f"API request attempt {attempt + 1} failed: {e}")
                 if attempt == max_retries - 1:
                     logger.error(f"API request failed after {max_retries} attempts: {url}")
                     return None
@@ -74,8 +75,9 @@ class APIClient:
                     else:
                         return {"data": await resp.text()}
             else:
-                logger.error(f"API returned error status {resp.status}: {await resp.text()}")
-                return None
+                error_text = await resp.text()
+                logger.error(f"API returned error status {resp.status}: {error_text}")
+                return {"success": False, "error": error_text, "status_code": resp.status}
                 
         except Exception as e:
             logger.error(f"Error handling response: {e}")
@@ -108,7 +110,7 @@ class APIClient:
             "telegram_id": telegram_id,
             "username": username,
             "fio": fio,
-            "group_ids": group_ids,  # ✅ TO'G'RI - backend "group_ids" kutadi
+            "group_ids": group_ids,
             "hemis_id": hemis_id if hemis_id is not None else None,
             "pnfl": pnfl,
             "tg_tel": tg_tel,
@@ -151,7 +153,7 @@ class APIClient:
             "address": address,
             "is_active": is_active,
             "is_teacher": is_teacher,
-            "group_ids": group_ids,  # ✅ TO'G'RI
+            "group_ids": group_ids,
         }
         
         filtered_payload = {}
@@ -219,7 +221,6 @@ class APIClient:
         logger.info(f"Adding member activity: {activity_type} for user {telegram_id} in group {group_id}")
         return await self.request("POST", "member-activity/add/", json=payload)
 
-
     async def get_member_activities(
         self,
         telegram_id: Optional[int] = None,
@@ -245,20 +246,61 @@ class APIClient:
         logger.info(f"Getting member activities with params: {params}")
         return await self.request("GET", "member-activity/list/", params=params)
 
-
     async def get_member_activity_stats(self) -> Optional[Dict]:
         """A'zo faoliyatlari statistikasi"""
         logger.info("Getting member activity statistics")
         return await self.request("GET", "member-activity/stats/")
     
-    
     async def get_user_info(self, telegram_id: int) -> Optional[Dict]:
-        """Telegram ID bo‘yicha foydalanuvchi haqida to‘liq ma’lumot olish"""
+        """Telegram ID bo'yicha foydalanuvchi haqida to'liq ma'lumot olish"""
         return await self.request("GET", f"user-info/", params={"telegram_id": telegram_id})
     
     async def check_admin(self, telegram_id: int) -> Optional[Dict]:
         """Foydalanuvchi admin ekanligini tekshirish"""
         return await self.request("GET", "check-admin/", params={"telegram_id": telegram_id})
+    
+    async def safe_add_register(self, telegram_id: int, data: dict) -> Optional[Dict]:
+        """
+        Foydalanuvchi mavjud bo'lmasa → yaratadi,
+        mavjud bo'lsa → yangilaydi
+        """
+        try:
+            # Avval foydalanuvchi ma'lumotlarini olish
+            user_info = await self.get_user_full_info(telegram_id)
+            
+            # Foydalanuvchi mavjud emas
+            if not user_info or not user_info.get("success", True) or not user_info.get("data"):
+                # Yangi foydalanuvchi yaratish
+                logger.info(f"Creating new user: {telegram_id}")
+                result = await self.add_register(
+                    telegram_id=telegram_id,
+                    group_ids=data.get("register_groups", []),
+                    username=data.get("username"),
+                    fio=data.get("first_name")  # first_name -> fio
+                )
+                return result
+                
+            else:
+                # Foydalanuvchi mavjud - yangilash
+                logger.info(f"Updating existing user: {telegram_id}")
+                existing_data = user_info["data"]
+                existing_groups = [g["group_id"] for g in existing_data.get("register_groups", [])]
+                new_groups = data.get("register_groups", [])
+                
+                # Guruhlarni birlashtirish
+                all_groups = list(set(existing_groups + new_groups))
+                
+                result = await self.update_register(
+                    telegram_id=telegram_id,
+                    username=data.get("username") or existing_data.get("username"),
+                    fio=data.get("first_name") or existing_data.get("fio"),
+                    group_ids=all_groups
+                )
+                return result
+
+        except Exception as e:
+            logger.error(f"safe_add_register error for user {telegram_id}: {e}")
+            return {"success": False, "error": str(e)}
 
     
 api_client = APIClient()

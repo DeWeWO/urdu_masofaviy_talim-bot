@@ -15,17 +15,21 @@ router = Router()
 async def start_register(message: types.Message):
     telegram_id = message.from_user.id
     
-    async with api_client as client:
-        admin_data = await client.check_admin(telegram_id)
-    
-    if not (admin_data and admin_data.get("is_admin")):
-        await message.answer("❌ Noto'g'ri format.")
-        return
-    
-    await message.answer(
-        "Guruhga qo'shish uchun pastdagi tugmani bosib guruh tanlang!",
-        reply_markup=inine_add_group
-    )
+    try:
+        async with api_client as client:
+            admin_data = await client.check_admin(telegram_id)
+        
+        if not admin_data or not admin_data.get("is_admin"):
+            await message.answer("❌ Sizda admin huquqi yo'q.")
+            return
+        
+        await message.answer(
+            "Guruhga qo'shish uchun pastdagi tugmani bosib guruh tanlang!",
+            reply_markup=inine_add_group
+        )
+    except Exception as e:
+        logging.error(f"Admin check error: {e}")
+        await message.answer("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.")
 
 @router.my_chat_member()
 async def bot_added_to_group(event: types.ChatMemberUpdated):
@@ -36,33 +40,11 @@ async def bot_added_to_group(event: types.ChatMemberUpdated):
     if event.new_chat_member.user.id != me.id:
         return
 
-    if (event.old_chat_member.status in (ChatMemberStatus.LEFT, ChatMemberStatus.KICKED)
-        and event.new_chat_member.status in (ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR)):
+    # Bot guruhga qo'shildi
+    if (event.old_chat_member.status in (ChatMemberStatus.LEFT, ChatMemberStatus.KICKED) and 
+        event.new_chat_member.status in (ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR)):
         
-        title = event.chat.title or "No title"
-        group_id = event.chat.id
-
-        try:
-            # Adminlarga xabar
-            accept_text = f"🎉 Bot yangi guruhga qo'shildi!\n\n📋 Guruh: {title}\n🆔 ID: {group_id}"
-            await _send_to_admins(accept_text)
-
-            # Guruhni backendga yozish
-            async with api_client as client:
-                resp = await client.add_group(title, group_id)
-                if not resp or (isinstance(resp, dict) and resp.get("success") is False):
-                    error_msg = resp.get("error", "Noma'lum xatolik") if isinstance(resp, dict) else "API javob bermadi"
-                    logging.error(f"Backendga guruhni yozishda xatolik: {error_msg}")
-                    await _send_error_to_admin(f"⚠️ Botni guruhga qo'shishda xatolik bo'ldi: {error_msg}")
-                    return
-                else:
-                    logging.info(f"Guruh {group_id} ({title}) muvaffaqiyatli bazaga qo'shildi")
-
-            # A'zolarni yig'ish va yozish
-            await _process_group_members(group_id)
-
-        except Exception as e:
-            await _send_error_to_admin("⚠️ Guruh a'zolarini yozishda xatolik bo'ldi.")
+        await _handle_bot_added(event.chat)
 
 @router.chat_member()
 async def handle_member_changes(event: types.ChatMemberUpdated):
@@ -77,271 +59,281 @@ async def handle_member_changes(event: types.ChatMemberUpdated):
     old_status = event.old_chat_member.status
     new_status = event.new_chat_member.status
     group_id = event.chat.id
-    group_title = event.chat.title or "Guruh"
     
-    full_name = " ".join(filter(None, [user.first_name, user.last_name])).strip() or None
-    user_data = {
-        "id": user.id,
-        "full_name": full_name,
-        "username": user.username,
-    }
+    user_data = _format_user_data(user)
 
     try:
         # A'zo qo'shildi
         if (old_status in (ChatMemberStatus.LEFT, ChatMemberStatus.KICKED) and 
             new_status in (ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR)):
-            await _handle_member_join(user_data, group_id, group_title, event.date)
-            
+            await _handle_member_join(user_data, group_id, event.chat.title, event.date)
+        
         # A'zo chiqdi/chiqarildi
         elif (old_status in (ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR) and 
               new_status in (ChatMemberStatus.LEFT, ChatMemberStatus.KICKED)):
-            await _handle_member_leave(user_data, group_id, group_title, event, new_status)
+            await _handle_member_leave(user_data, group_id, event.chat.title, event, new_status)
             
     except Exception as e:
-        await _send_error_to_admin("A'zo o'zgarishlarini qayta ishlashda xatolik")
+        logging.error(f"Member change handling error: {e}")
+        await _notify_admins(f"⚠️ A'zo o'zgarishlarini qayta ishlashda xatolik: {str(e)}")
+
+async def _handle_bot_added(chat):
+    """Bot guruhga qo'shilganda"""
+    title = chat.title or "No title"
+    group_id = chat.id
+    
+    try:
+        # Adminlarga xabar
+        await _notify_admins(f"🎉 Bot yangi guruhga qo'shildi!\n\n📋 Guruh: {title}\n🆔 ID: {group_id}")
+        
+        # Guruhni bazaga qo'shish
+        async with api_client as client:
+            result = await client.add_group(title, group_id)
+            
+            if not _is_success_response(result):
+                error_msg = _get_error_message(result)
+                logging.error(f"Group add error: {error_msg}")
+                await _notify_admins(f"⚠️ Guruhni bazaga qo'shishda xatolik: {error_msg}")
+                return
+        
+        logging.info(f"Group {group_id} ({title}) successfully added")
+        
+        # A'zolarni yig'ish va qo'shish
+        await _process_group_members(group_id)
+        
+    except Exception as e:
+        logging.error(f"Bot added handler error: {e}")
+        await _notify_admins("⚠️ Botni guruhga qo'shishda xatolik yuz berdi.")
 
 async def _process_group_members(group_id: int):
-    """Guruh a'zolarini yig'ish va bazaga yozish"""
+    """Guruh a'zolarini yig'ish va bazaga qo'shish"""
     try:
-        members = []
-        
         # A'zolarni yig'ish
+        members = []
         async for user in telethon_client.iter_participants(group_id):
-            if getattr(user, "bot", False):
-                continue
-            
-            full_name = " ".join(filter(None, [user.first_name, user.last_name])).strip() or None
-            members.append({
-                "id": user.id,
-                "username": user.username or None,
-                "full_name": full_name
-            })
-
+            if not getattr(user, "bot", False):
+                members.append(_format_user_data(user))
         
         if not members:
-            await _send_to_admins("⚠️ Guruhda hech qanday a'zo topilmadi yoki barcha a'zolar botlar.")
+            await _notify_admins("⚠️ Guruhda foydalanuvchilar topilmadi.")
             return
-
+        
         success_count = 0
         failed_count = 0
         
+        # A'zolarni bazaga qo'shish
         async with api_client as client:
             for i, member in enumerate(members, start=1):
-                try:                    
-                    # Har doim foydalanuvchini add_register bilan qo'shamiz
-                    # Chunki bir foydalanuvchi bir nechta guruhda bo'lishi mumkin
-                    try:
-                        result = await client.add_register(
-                            telegram_id=member["id"],
-                            group_ids=[group_id],
-                            username=member["username"],
-                            fio=member["full_name"],
-                            is_active=False,
-                            is_teacher=False
-                        )                        
-                    except Exception as add_error:
-                        result = None
-                    
-                    # Natijani tekshirish
-                    if result:
-                        # Muvaffaqiyatli qo'shildi
+                try:
+                    success = await _add_user_to_group(client, member, group_id)
+                    if success:
                         success_count += 1
-                        
-                    elif result is None:
-                        # API None qaytardi, ehtimol "already exists" xatoligi
-                        
-                        try:
-                            # Mavjud guruhlarni olamiz
-                            existing_user = await client.get_user_full_info(member["id"])
-                            
-                            if existing_user and existing_user.get("success") and existing_user.get("data"):
-                                existing_groups = [g["group_id"] for g in existing_user["data"].get("register_groups", [])]
-                                
-                                # Agar bu guruh allaqachon mavjud bo'lsa
-                                if group_id in existing_groups:
-                                    success_count += 1
-                                else:
-                                    # Yangi guruhni qo'shib update qilamiz
-                                    all_groups = list(set(existing_groups + [group_id]))
-                                    
-                                    update_result = await client.update_register(
-                                        telegram_id=member["id"],
-                                        username=member["username"],
-                                        fio=member["full_name"],
-                                        group_ids=all_groups
-                                    )
-                                                                        
-                                    if update_result and not (isinstance(update_result, dict) and update_result.get("success") is False):
-                                        success_count += 1
-                                    else:
-                                        failed_count += 1
-                            else:
-                                failed_count += 1
-                                
-                        except Exception as update_error:
-                            failed_count += 1
                     else:
-                        # result False yoki boshqa qiymat
                         failed_count += 1
-                    
+                        
+                    # Rate limiting
+                    if i % 10 == 0:
+                        await asyncio.sleep(0.2)
+                        
                 except Exception as e:
+                    logging.error(f"Member processing error for {member['id']}: {e}")
                     failed_count += 1
-
-                # Har 10 ta foydalanuvchidan keyin biroz kutish
-                if i % 10 == 0:
-                    await asyncio.sleep(0.2)
-
+        
         # Natija haqida xabar
-        info_text = (
-            f"📊 <b>Guruh a'zolari qayta ishlandi:</b>\n\n"
-            f"✅ <b>Muvaffaqiyatli:</b> {success_count} ta\n"
-            f"❌ <b>Xatolik:</b> {failed_count} ta\n"
-            f"📋 <b>Jami a'zolar:</b> {len(members)} ta"
+        result_text = (
+            f"📊 Guruh a'zolari qayta ishlandi:\n\n"
+            f"✅ Muvaffaqiyatli: {success_count}\n"
+            f"❌ Xatolik: {failed_count}\n"
+            f"📋 Jami: {len(members)}"
         )
-        
-        if failed_count > 0:
-            info_text += f"\n\n⚠️ <b>Eslatma:</b> Ba'zi a'zolarni qo'shishda muammolar bo'ldi. Loglarni tekshiring."
-        
-        await _send_to_admins(info_text)
+        await _notify_admins(result_text)
         
     except Exception as e:
-        await _send_error_to_admin(f"⚠️ Guruh a'zolarini qayta ishlashda jiddiy xatolik: {str(e)}")
+        logging.error(f"Process group members error: {e}")
+        await _notify_admins("⚠️ Guruh a'zolarini qayta ishlashda xatolik yuz berdi.")
+
+async def _add_user_to_group(client, user_data: dict, group_id: int) -> bool:
+    """Foydalanuvchini guruhga qo'shish"""
+    try:
+        result = await client.safe_add_register(
+            telegram_id=user_data["id"],
+            data={
+                "username": user_data["username"],
+                "first_name": user_data["full_name"],
+                "register_groups": [group_id]
+            }
+        )
+        
+        return _is_success_response(result)
+        
+    except Exception as e:
+        logging.error(f"Add user to group error: {e}")
+        return False
 
 async def _handle_member_join(user_data: dict, group_id: int, group_title: str, event_date):
-    """Yangi a'zo qo'shilganida ishlov berish"""
-    # Adminlarga xabar
-    member_text = (
-        f"🟢 <b>Yangi a'zo qo'shildi!</b>\n\n"
-        f"👤 <b>Ism:</b> {user_data['full_name'] or f"User {user_data['id']}"}\n"
-        f"🆔 <b>User:</b> @{user_data['username'] or user_data['id']}\n"
-        f"💬 <b>Guruh:</b> {group_title}\n"
-        f"🆔 <b>Guruh ID:</b> {group_id}"
-    )
-    await _send_to_admins(member_text)
-    
-    # Foydalanuvchini bazaga qo'shish/yangilash
-    async with api_client as client:
-        existing_user = await client.get_user_full_info(user_data["id"])
-        existing_groups = []
+    """Yangi a'zo qo'shilganda"""
+    try:
+        # Adminlarga xabar
+        join_text = (
+            f"🟢 Yangi a'zo qo'shildi!\n\n"
+            f"👤 {user_data['full_name'] or f'User {user_data["id"]}'}\n"
+            f"🆔 @{user_data['username'] or user_data['id']}\n"
+            f"💬 {group_title}\n"
+            f"🆔 Guruh ID: {group_id}"
+        )
+        await _notify_admins(join_text)
         
-        if existing_user and existing_user.get("success") and existing_user.get("data"):
-            existing_groups = [g["group_id"] for g in existing_user["data"].get("register_groups", [])]
-        
-        # Yangi guruhni qo'shish
-        all_groups = list(set(existing_groups + [group_id]))
-        
-        if existing_user and existing_user.get("success") and existing_user.get("data"):
-            reg_result = await client.update_register(
-                telegram_id=user_data["id"],
-                username=user_data["username"],
-                fio=user_data["full_name"],
-                group_ids=all_groups
-            )
-        else:
-            reg_result = await client.add_register(
-                telegram_id=user_data["id"],
-                group_ids=[group_id],
-                username=user_data["username"],
-                fio=user_data["full_name"],
-                is_active=False,
-                is_teacher=False
-            )
-        
-        # Faoliyat yozuvi
-        if reg_result and not (isinstance(reg_result, dict) and reg_result.get("success") is False):
-            try:
-                await client.add_member_activity(
-                    telegram_id=user_data["id"],
-                    group_id=group_id,
-                    activity_type='join',
-                    action_by='system',
-                    activity_time=event_date.isoformat()
+        # Foydalanuvchini bazaga qo'shish
+        async with api_client as client:
+            success = await _add_user_to_group(client, user_data, group_id)
+            
+            if success:
+                # Faoliyat yozuvi
+                await _add_activity_log(
+                    client, user_data["id"], group_id, 
+                    'join', 'system', event_date.isoformat()
                 )
-            except Exception as e:
-                logging.warning(f"Activity qo'shish xatolik: {e}")
+                
+    except Exception as e:
+        logging.error(f"Handle member join error: {e}")
 
 async def _handle_member_leave(user_data: dict, group_id: int, group_title: str, event, leave_status):
-    """A'zo chiqganida/chiqarilganida ishlov berish"""
-    action = "chiqarildi" if leave_status == ChatMemberStatus.KICKED else "chiqdi"
-    emoji = "🚫" if leave_status == ChatMemberStatus.KICKED else "🔴"
-    
-    # Kim action qilgan
-    from_user = event.from_user
-    admin_info = {}
-    
-    if from_user and from_user.id != user_data["id"]:
-        by_whom = f"👨‍💼 <b>Kim:</b> {from_user.full_name or 'Noma\'lum'} (@{from_user.username or from_user.id})"
-        admin_info = {
-            "admin_telegram_id": from_user.id,
-            "admin_name": from_user.full_name,
-            "admin_username": from_user.username
-        }
-    else:
-        by_whom = "📝 <b>Usul:</b> O'zi chiqdi"
-    
-    # Adminlarga xabar
-    leave_text = (
-        f"{emoji} <b>A'zo {action}!</b>\n\n"
-        f"👤 <b>Ism:</b> {user_data['full_name'] or f"User {user_data['id']}"}\n"
-        f"🆔 <b>User:</b> @{user_data['username'] or user_data['id']}\n"
-        f"{by_whom}\n"
-        f"💬 <b>Guruh:</b> {group_title}"
-    )
-    await _send_to_admins(leave_text)
-    
-    # Register jadvalidan guruhni o'chirish va faoliyat yozuvi
-    async with api_client as client:
-        try:
-            existing_user = await client.get_user_full_info(user_data["id"])
-            
-            if existing_user and existing_user.get("success") and existing_user.get("data"):
-                existing_groups = [g["group_id"] for g in existing_user["data"].get("register_groups", [])]
-                # Faqat chiqgan guruhni o'chirish
-                remaining_groups = [g for g in existing_groups if g != group_id]
-                
-                await client.update_register(
-                    telegram_id=user_data["id"],
-                    username=user_data["username"],
-                    fio=user_data["full_name"],
-                    group_ids=remaining_groups
-                )
+    """A'zo chiqganda/chiqarilganda"""
+    try:
+        action = "chiqarildi" if leave_status == ChatMemberStatus.KICKED else "chiqdi"
+        emoji = "🚫" if leave_status == ChatMemberStatus.KICKED else "🔴"
+        
+        # Admin ma'lumotlari
+        admin_info = {}
+        from_user = event.from_user
+        
+        if from_user and from_user.id != user_data["id"]:
+            by_whom = f"👨‍💼 Kim: {from_user.full_name or 'Noma\'lum'} (@{from_user.username or from_user.id})"
+            admin_info = {
+                "admin_telegram_id": from_user.id,
+                "admin_name": from_user.full_name,
+                "admin_username": from_user.username
+            }
+        else:
+            by_whom = "📝 O'zi chiqdi"
+        
+        # Adminlarga xabar
+        leave_text = (
+            f"{emoji} A'zo {action}!\n\n"
+            f"👤 {user_data['full_name'] or f'User {user_data["id"]}'}\n"
+            f"🆔 @{user_data['username'] or user_data['id']}\n"
+            f"{by_whom}\n"
+            f"💬 {group_title}"
+        )
+        await _notify_admins(leave_text)
+        
+        # Guruhdan o'chirish
+        async with api_client as client:
+            await _remove_user_from_group(client, user_data, group_id)
             
             # Faoliyat yozuvi
-            await client.add_member_activity(
-                telegram_id=user_data["id"],
-                group_id=group_id,
-                activity_type='leave' if leave_status == ChatMemberStatus.LEFT else 'kicked',
-                action_by='self' if not admin_info else 'admin',
-                activity_time=event.date.isoformat(),
+            activity_type = 'leave' if leave_status == ChatMemberStatus.LEFT else 'kicked'
+            action_by = 'self' if not admin_info else 'admin'
+            
+            await _add_activity_log(
+                client, user_data["id"], group_id,
+                activity_type, action_by, event.date.isoformat(),
                 **admin_info
             )
             
+    except Exception as e:
+        logging.error(f"Handle member leave error: {e}")
+
+async def _remove_user_from_group(client, user_data: dict, group_id: int):
+    """Foydalanuvchini guruhdan o'chirish"""
+    try:
+        # Avval foydalanuvchining guruhlarini olish
+        existing_user = await client.get_user_full_info(user_data["id"])
+        
+        if _is_success_response(existing_user) and existing_user.get("data"):
+            existing_groups = [g["group_id"] for g in existing_user["data"].get("register_groups", [])]
+            remaining_groups = [g for g in existing_groups if g != group_id]
+            
+            # Foydalanuvchini yangi guruhlar ro'yxati bilan yangilash
+            await client.safe_add_register(
+                telegram_id=user_data["id"],
+                data={
+                    "username": user_data["username"],
+                    "first_name": user_data["full_name"],
+                    "register_groups": remaining_groups
+                }
+            )
+            
+    except Exception as e:
+        logging.error(f"Remove user from group error: {e}")
+
+async def _add_activity_log(client, telegram_id: int, group_id: int, activity_type: str, 
+                          action_by: str, activity_time: str, **kwargs):
+    """Faoliyat yozuvini qo'shish"""
+    try:
+        await client.add_member_activity(
+            telegram_id=telegram_id,
+            group_id=group_id,
+            activity_type=activity_type,
+            action_by=action_by,
+            activity_time=activity_time,
+            **kwargs
+        )
+    except Exception as e:
+        logging.warning(f"Activity log error: {e}")
+
+def _format_user_data(user) -> dict:
+    """Foydalanuvchi ma'lumotlarini formatlash"""
+    full_name = " ".join(filter(None, [
+        getattr(user, 'first_name', None), 
+        getattr(user, 'last_name', None)
+    ])).strip() or None
+    
+    return {
+        "id": user.id,
+        "full_name": full_name,
+        "username": getattr(user, 'username', None),
+    }
+
+def _is_success_response(response) -> bool:
+    """API response ni tekshirish"""
+    if not response:
+        return False
+    
+    # Agar response dict bo'lsa va success false bo'lsa
+    if isinstance(response, dict):
+        if "success" in response:
+            return response["success"] is not False
+        # Agar success maydoni yo'q bo'lsa, error tekshiramiz
+        if "error" in response:
+            return False
+    
+    return True
+
+def _get_error_message(response) -> str:
+    """Xatolik xabarini olish"""
+    if isinstance(response, dict):
+        if response.get("error"):
+            return str(response["error"])
+        if response.get("message"):
+            return str(response["message"])
+    return "Noma'lum xatolik"
+
+async def _notify_admins(message: str):
+    """Adminlarga xabar yuborish"""
+    admin_ids = ADMINS if isinstance(ADMINS, (list, tuple)) else [ADMINS]
+    
+    for admin_id in admin_ids:
+        try:
+            async with api_client as client:
+                admin_data = await client.check_admin(admin_id)
+                if admin_data and admin_data.get("is_admin"):
+                    await bot.send_message(
+                        chat_id=admin_id, 
+                        text=message, 
+                        parse_mode="HTML"
+                    )
+                    break  # Birinchi adminga yuborib to'xtatish
         except Exception as e:
-            logging.warning(f"Leave processing xatolik: {e}")
-
-async def _send_to_admins(message: str):
-    """Barcha adminlarga xabar yuborish"""
-    admin_ids = ADMINS if isinstance(ADMINS, (list, tuple)) else [ADMINS]
-    
-    async with api_client as client:
-        for admin_id in admin_ids:
-            try:
-                admin_data = await client.check_admin(admin_id)
-                if admin_data and admin_data.get("is_admin"):
-                    await bot.send_message(chat_id=admin_id, text=message, parse_mode="HTML")
-            except Exception as e:
-                logging.warning(f"Admin {admin_id} ga xabar yuborilmadi: {e}")
-
-async def _send_error_to_admin(error_message: str):
-    """Birinchi adminga xato haqida xabar yuborish"""
-    admin_ids = ADMINS if isinstance(ADMINS, (list, tuple)) else [ADMINS]
-    
-    async with api_client as client:
-        for admin_id in admin_ids:
-            try:
-                admin_data = await client.check_admin(admin_id)
-                if admin_data and admin_data.get("is_admin"):
-                    await bot.send_message(chat_id=admin_id, text=error_message, parse_mode="HTML")
-                    break
-            except Exception as e:
-                logging.warning(f"Admin {admin_id} ga xato xabari yuborilmadi: {e}")
+            logging.warning(f"Admin notification error for {admin_id}: {e}")
+            continue
