@@ -20,8 +20,7 @@ async def do_start(message: types.Message):
             admin_data = await client.check_admin(telegram_id)
             if admin_data and admin_data.get("is_admin"):
                 await message.answer(
-                    f"👑 Assalomu alaykum, {make_title(full_name)}!\n"
-                    f"Siz adminsiz.",
+                    f"❇️ Assalomu alaykum, {make_title(full_name)}!",
                     reply_markup=add_group()
                 )
                 return  # ✅ Agar admin bo‘lsa shu yerda tugaydi
