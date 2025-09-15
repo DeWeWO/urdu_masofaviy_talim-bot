@@ -90,6 +90,17 @@ class APIClient:
         }
         logger.info(f"Adding group: {group_name} (ID: {group_id})")
         return await self.request("POST", "telegram/group/add/", json=payload)
+
+    async def add_group_with_type(self, group_name: str, group_id: int, is_teacher_group: bool = False) -> Optional[Dict]:
+        """Guruhni turi bilan qo'shish"""
+        payload = {
+            "group_name": group_name,
+            "group_id": group_id,
+            "is_teacher_group": is_teacher_group
+        }
+        group_type = "teacher" if is_teacher_group else "student"
+        logger.info(f"Adding {group_type} group: {group_name} (ID: {group_id})")
+        return await self.request("POST", "telegram/group/add/", json=payload)
     
     async def add_register(
         self,
@@ -124,7 +135,8 @@ class APIClient:
         # Bo'sh qiymatlarni olib tashlash
         payload = {k: v for k, v in payload.items() if v is not None and v != ""}
         
-        logger.info(f"Adding register for user {telegram_id} to groups {group_ids}")
+        user_type = "teacher" if is_teacher else "student"
+        logger.info(f"Adding {user_type} register for user {telegram_id} to groups {group_ids}")
         return await self.request("POST", "register/", json=payload)
     
     async def update_register(
@@ -268,15 +280,19 @@ class APIClient:
             # Avval foydalanuvchi ma'lumotlarini olish
             user_info = await self.get_user_full_info(telegram_id)
             
+            # is_teacher parametrini olish
+            is_teacher = data.get("is_teacher", False)
+            
             # Foydalanuvchi mavjud emas
             if not user_info or not user_info.get("success", True) or not user_info.get("data"):
                 # Yangi foydalanuvchi yaratish
-                logger.info(f"Creating new user: {telegram_id}")
+                logger.info(f"Creating new {'teacher' if is_teacher else 'student'}: {telegram_id}")
                 result = await self.add_register(
                     telegram_id=telegram_id,
                     group_ids=data.get("register_groups", []),
                     username=data.get("username"),
-                    fio=data.get("first_name")  # first_name -> fio
+                    fio=data.get("first_name"),  # first_name -> fio
+                    is_teacher=is_teacher
                 )
                 return result
                 
@@ -290,11 +306,16 @@ class APIClient:
                 # Guruhlarni birlashtirish
                 all_groups = list(set(existing_groups + new_groups))
                 
+                # is_teacher holatini yangilash (agar yangi qiymat mavjud bo'lsa)
+                current_is_teacher = existing_data.get("is_teacher", False)
+                final_is_teacher = is_teacher if is_teacher else current_is_teacher
+                
                 result = await self.update_register(
                     telegram_id=telegram_id,
                     username=data.get("username") or existing_data.get("username"),
                     fio=data.get("first_name") or existing_data.get("fio"),
-                    group_ids=all_groups
+                    group_ids=all_groups,
+                    is_teacher=final_is_teacher
                 )
                 return result
 

@@ -3,6 +3,8 @@ import logging
 from datetime import datetime
 from aiogram import types, F, Router
 from aiogram.enums import ChatType, ChatMemberStatus
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters.callback_data import CallbackData
 from keyboards.inline.buttons import inine_add_group
 from loader import bot
 from data.config import ADMINS
@@ -11,8 +13,17 @@ from utils.telethon_client import telethon_client
 
 router = Router()
 
+# Callback data class
+class GroupTypeCallback(CallbackData, prefix="group_type"):
+    action: str
+    group_id: int
+
+# Guruh turlarini saqlash uchun (xotirada)
+pending_teacher_groups = set()
+group_types = {}  # group_id: is_teacher_group
+
 @router.message(F.text == "👥 Guruhga qo'shish")
-async def start_register(message: types.Message):
+async def start_teacher_register(message: types.Message):
     telegram_id = message.from_user.id
     
     try:
@@ -23,9 +34,13 @@ async def start_register(message: types.Message):
             await message.answer("❌ Sizda admin huquqi yo'q.")
             return
         
+        # O'qituvchi rejimini yoqish
+        pending_teacher_groups.add(telegram_id)
+        
         await message.answer(
-            "Guruhga qo'shish uchun pastdagi tugmani bosib guruh tanlang!",
-            reply_markup=inine_add_group
+            "Botni guruhga qo'shgandan keyin 👨‍🎓 Talabalr yoki 👨‍🏫 O'qituvchilar guruhi ekanligini tanlashingiz kerak bo'ladi.",
+            reply_markup=inine_add_group,
+            parse_mode="HTML"
         )
     except Exception as e:
         logging.error(f"Admin check error: {e}")
@@ -44,7 +59,82 @@ async def bot_added_to_group(event: types.ChatMemberUpdated):
     if (event.old_chat_member.status in (ChatMemberStatus.LEFT, ChatMemberStatus.KICKED) and 
         event.new_chat_member.status in (ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR)):
         
-        await _handle_bot_added(event.chat)
+        # Guruh turini so'rash
+        await _ask_group_type(event.chat)
+
+async def _ask_group_type(chat):
+    """Admin dan guruh turini so'rash"""
+    group_id = chat.id
+    title = chat.title or "No title"
+    
+    type_action = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="👨‍🎓 Talabalar guruhi", 
+                callback_data=GroupTypeCallback(action="student", group_id=group_id).pack()
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="👨‍🏫 O'qituvchilar guruhi", 
+                callback_data=GroupTypeCallback(action="teacher", group_id=group_id).pack()
+            )
+        ]
+    ])
+    
+    message_text = (
+        f"🎉 Bot yangi guruhga qo'shildi!\n\n"
+        f"📋 Guruh: {title}\n"
+        f"🆔 ID: {group_id}\n\n"
+        f"❓ Bu qanday guruh?"
+    )
+    
+    # Adminlarga xabar yuborish
+    admin_ids = ADMINS if isinstance(ADMINS, (list, tuple)) else [ADMINS]
+    
+    for admin_id in admin_ids:
+        try:
+            async with api_client as client:
+                admin_data = await client.check_admin(admin_id)
+                if admin_data and admin_data.get("is_admin"):
+                    await bot.send_message(
+                        chat_id=admin_id,
+                        text=message_text,
+                        reply_markup=type_action,
+                        parse_mode="HTML"
+                    )
+                    break
+        except Exception as e:
+            logging.warning(f"Admin notification error for {admin_id}: {e}")
+            continue
+
+@router.callback_query(GroupTypeCallback.filter())
+async def handle_group_type_selection(callback: types.CallbackQuery, callback_data: GroupTypeCallback):
+    group_id = callback_data.group_id
+    is_teacher_group = callback_data.action == "teacher"
+    group_type = "o'qituvchilar" if is_teacher_group else "talabalar"
+    
+    try:
+        # Guruh turini saqlash
+        group_types[group_id] = is_teacher_group
+        
+        # Callback ni javoblash
+        await callback.answer(f"✅ {group_type.title()} guruhi sifatida belgilandi!")
+        
+        # Xabarni yangilash
+        await callback.message.edit_text(
+            f"✅ Guruh {group_type} guruhi sifatida belgilandi!\n\n"
+            f"📋 Guruh ID: {group_id}\n\n"
+            f"🔄 A'zolarni qayta ishlamoqda..."
+        )
+        
+        # Guruhni va a'zolarni qayta ishlash
+        chat = await bot.get_chat(group_id)
+        await _handle_bot_added(chat, is_teacher_group)
+        
+    except Exception as e:
+        logging.error(f"Group type selection error: {e}")
+        await callback.answer("❌ Xatolik yuz berdi!", show_alert=True)
 
 @router.chat_member()
 async def handle_member_changes(event: types.ChatMemberUpdated):
@@ -63,10 +153,13 @@ async def handle_member_changes(event: types.ChatMemberUpdated):
     user_data = _format_user_data(user)
 
     try:
+        # Guruhning o'qituvchi guruhi ekanligini tekshirish
+        is_teacher_group = group_types.get(group_id, False)
+        
         # A'zo qo'shildi
         if (old_status in (ChatMemberStatus.LEFT, ChatMemberStatus.KICKED) and 
             new_status in (ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR)):
-            await _handle_member_join(user_data, group_id, event.chat.title, event.date)
+            await _handle_member_join(user_data, group_id, event.chat.title, event.date, is_teacher_group)
         
         # A'zo chiqdi/chiqarildi
         elif (old_status in (ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR) and 
@@ -77,18 +170,20 @@ async def handle_member_changes(event: types.ChatMemberUpdated):
         logging.error(f"Member change handling error: {e}")
         await _notify_admins(f"⚠️ A'zo o'zgarishlarini qayta ishlashda xatolik: {str(e)}")
 
-async def _handle_bot_added(chat):
+async def _check_if_teacher_group(group_id: int) -> bool:
+    """Guruhning o'qituvchi guruhi ekanligini tekshirish"""
+    return group_types.get(group_id, False)
+
+async def _handle_bot_added(chat, is_teacher_group: bool = False):
     """Bot guruhga qo'shilganda"""
     title = chat.title or "No title"
     group_id = chat.id
+    group_type = "o'qituvchilar" if is_teacher_group else "talabalar"
     
     try:
-        # Adminlarga xabar
-        await _notify_admins(f"🎉 Bot yangi guruhga qo'shildi!\n\n📋 Guruh: {title}\n🆔 ID: {group_id}")
-        
         # Guruhni bazaga qo'shish
         async with api_client as client:
-            result = await client.add_group(title, group_id)
+            result = await client.add_group_with_type(title, group_id, is_teacher_group)
             
             if not _is_success_response(result):
                 error_msg = _get_error_message(result)
@@ -96,16 +191,16 @@ async def _handle_bot_added(chat):
                 await _notify_admins(f"⚠️ Guruhni bazaga qo'shishda xatolik: {error_msg}")
                 return
         
-        logging.info(f"Group {group_id} ({title}) successfully added")
+        logging.info(f"Group {group_id} ({title}) successfully added as {group_type} group")
         
         # A'zolarni yig'ish va qo'shish
-        await _process_group_members(group_id)
+        await _process_group_members(group_id, is_teacher_group)
         
     except Exception as e:
         logging.error(f"Bot added handler error: {e}")
         await _notify_admins("⚠️ Botni guruhga qo'shishda xatolik yuz berdi.")
 
-async def _process_group_members(group_id: int):
+async def _process_group_members(group_id: int, is_teacher_group: bool = False):
     """Guruh a'zolarini yig'ish va bazaga qo'shish"""
     try:
         # A'zolarni yig'ish
@@ -120,12 +215,13 @@ async def _process_group_members(group_id: int):
         
         success_count = 0
         failed_count = 0
+        group_type = "O'qituvchilar" if is_teacher_group else "Talabalar"
         
         # A'zolarni bazaga qo'shish
         async with api_client as client:
             for i, member in enumerate(members, start=1):
                 try:
-                    success = await _add_user_to_group(client, member, group_id)
+                    success = await _add_user_to_group(client, member, group_id, is_teacher_group)
                     if success:
                         success_count += 1
                     else:
@@ -141,7 +237,7 @@ async def _process_group_members(group_id: int):
         
         # Natija haqida xabar
         result_text = (
-            f"📊 Guruh a'zolari qayta ishlandi:\n\n"
+            f"📊 {group_type} guruhi a'zolari qayta ishlandi:\n\n"
             f"✅ Muvaffaqiyatli: {success_count}\n"
             f"❌ Xatolik: {failed_count}\n"
             f"📋 Jami: {len(members)}"
@@ -152,7 +248,7 @@ async def _process_group_members(group_id: int):
         logging.error(f"Process group members error: {e}")
         await _notify_admins("⚠️ Guruh a'zolarini qayta ishlashda xatolik yuz berdi.")
 
-async def _add_user_to_group(client, user_data: dict, group_id: int) -> bool:
+async def _add_user_to_group(client, user_data: dict, group_id: int, is_teacher: bool = False) -> bool:
     """Foydalanuvchini guruhga qo'shish"""
     try:
         result = await client.safe_add_register(
@@ -160,7 +256,8 @@ async def _add_user_to_group(client, user_data: dict, group_id: int) -> bool:
             data={
                 "username": user_data["username"],
                 "first_name": user_data["full_name"],
-                "register_groups": [group_id]
+                "register_groups": [group_id],
+                "is_teacher": is_teacher
             }
         )
         
@@ -170,12 +267,14 @@ async def _add_user_to_group(client, user_data: dict, group_id: int) -> bool:
         logging.error(f"Add user to group error: {e}")
         return False
 
-async def _handle_member_join(user_data: dict, group_id: int, group_title: str, event_date):
+async def _handle_member_join(user_data: dict, group_id: int, group_title: str, event_date, is_teacher_group: bool = False):
     """Yangi a'zo qo'shilganda"""
     try:
+        user_type = "o'qituvchi" if is_teacher_group else "talaba"
+        
         # Adminlarga xabar
         join_text = (
-            f"🟢 Yangi a'zo qo'shildi!\n\n"
+            f"🟢 Yangi {user_type} qo'shildi!\n\n"
             f"👤 {user_data['full_name'] or f'User {user_data["id"]}'}\n"
             f"🆔 @{user_data['username'] or user_data['id']}\n"
             f"💬 {group_title}\n"
@@ -185,7 +284,7 @@ async def _handle_member_join(user_data: dict, group_id: int, group_title: str, 
         
         # Foydalanuvchini bazaga qo'shish
         async with api_client as client:
-            success = await _add_user_to_group(client, user_data, group_id)
+            success = await _add_user_to_group(client, user_data, group_id, is_teacher_group)
             
             if success:
                 # Faoliyat yozuvi
