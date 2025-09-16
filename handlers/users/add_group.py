@@ -7,7 +7,6 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters.callback_data import CallbackData
 from keyboards.inline.buttons import inine_add_group
 from loader import bot
-from data.config import ADMINS
 from utils.db.postgres import api_client
 from utils.telethon_client import telethon_client
 
@@ -21,6 +20,46 @@ class GroupTypeCallback(CallbackData, prefix="group_type"):
 # Guruh turlarini saqlash uchun (xotirada)
 pending_teacher_groups = set()
 group_types = {}  # group_id: is_teacher_group
+
+async def send_to_all_admins(message: str):
+    """Barcha adminlarga xabar yuborish"""
+    try:
+        async with api_client as client:
+            # Barcha adminlarni olish
+            all_users = await client.get_all_users_basic_info()
+            
+            if not all_users or not all_users.get("success") or not all_users.get("data"):
+                logging.warning("Could not fetch admin list")
+                return
+            
+            admin_count = 0
+            for user_data in all_users["data"]:
+                try:
+                    telegram_id = user_data.get("telegram_id")
+                    if not telegram_id:
+                        continue
+                    
+                    # Har bir foydalanuvchi uchun admin ekanligini tekshirish
+                    admin_check = await client.check_admin(telegram_id)
+                    if admin_check and admin_check.get("is_admin"):
+                        await bot.send_message(
+                            chat_id=telegram_id,
+                            text=message,
+                            parse_mode="HTML"
+                        )
+                        admin_count += 1
+                        
+                        # Rate limiting - adminlar orasida kichik pauza
+                        await asyncio.sleep(0.1)
+                        
+                except Exception as e:
+                    logging.warning(f"Failed to send message to admin {telegram_id}: {e}")
+                    continue
+                    
+            logging.info(f"Message sent to {admin_count} admins")
+            
+    except Exception as e:
+        logging.error(f"Error sending message to admins: {e}")
 
 @router.message(F.text == "👥 Guruhga qo'shish")
 async def start_teacher_register(message: types.Message):
@@ -89,24 +128,45 @@ async def _ask_group_type(chat):
         f"❓ Bu qanday guruh?"
     )
     
-    # Adminlarga xabar yuborish
-    admin_ids = ADMINS if isinstance(ADMINS, (list, tuple)) else [ADMINS]
-    
-    for admin_id in admin_ids:
-        try:
-            async with api_client as client:
-                admin_data = await client.check_admin(admin_id)
-                if admin_data and admin_data.get("is_admin"):
-                    await bot.send_message(
-                        chat_id=admin_id,
-                        text=message_text,
-                        reply_markup=type_action,
-                        parse_mode="HTML"
-                    )
-                    break
-        except Exception as e:
-            logging.warning(f"Admin notification error for {admin_id}: {e}")
-            continue
+    # Barcha adminlarga xabar yuborish (inline keyboard bilan)
+    try:
+        async with api_client as client:
+            # Barcha adminlarni olish
+            all_users = await client.get_all_users_basic_info()
+            
+            if not all_users or not all_users.get("success") or not all_users.get("data"):
+                logging.warning("Could not fetch admin list")
+                return
+            
+            admin_count = 0
+            for user_data in all_users["data"]:
+                try:
+                    telegram_id = user_data.get("telegram_id")
+                    if not telegram_id:
+                        continue
+                    
+                    # Har bir foydalanuvchi uchun admin ekanligini tekshirish
+                    admin_check = await client.check_admin(telegram_id)
+                    if admin_check and admin_check.get("is_admin"):
+                        await bot.send_message(
+                            chat_id=telegram_id,
+                            text=message_text,
+                            reply_markup=type_action,
+                            parse_mode="HTML"
+                        )
+                        admin_count += 1
+                        
+                        # Rate limiting
+                        await asyncio.sleep(0.1)
+                        
+                except Exception as e:
+                    logging.warning(f"Failed to send group type selection to admin {telegram_id}: {e}")
+                    continue
+                    
+            logging.info(f"Group type selection sent to {admin_count} admins")
+            
+    except Exception as e:
+        logging.error(f"Error sending group type selection to admins: {e}")
 
 @router.callback_query(GroupTypeCallback.filter())
 async def handle_group_type_selection(callback: types.CallbackQuery, callback_data: GroupTypeCallback):
@@ -168,7 +228,7 @@ async def handle_member_changes(event: types.ChatMemberUpdated):
             
     except Exception as e:
         logging.error(f"Member change handling error: {e}")
-        await _notify_admins(f"⚠️ A'zo o'zgarishlarini qayta ishlashda xatolik: {str(e)}")
+        await send_to_all_admins(f"⚠️ A'zo o'zgarishlarini qayta ishlashda xatolik: {str(e)}")
 
 async def _check_if_teacher_group(group_id: int) -> bool:
     """Guruhning o'qituvchi guruhi ekanligini tekshirish"""
@@ -188,7 +248,7 @@ async def _handle_bot_added(chat, is_teacher_group: bool = False):
             if not _is_success_response(result):
                 error_msg = _get_error_message(result)
                 logging.error(f"Group add error: {error_msg}")
-                await _notify_admins(f"⚠️ Guruhni bazaga qo'shishda xatolik: {error_msg}")
+                await send_to_all_admins(f"⚠️ Guruhni bazaga qo'shishda xatolik: {error_msg}")
                 return
         
         logging.info(f"Group {group_id} ({title}) successfully added as {group_type} group")
@@ -198,7 +258,7 @@ async def _handle_bot_added(chat, is_teacher_group: bool = False):
         
     except Exception as e:
         logging.error(f"Bot added handler error: {e}")
-        await _notify_admins("⚠️ Botni guruhga qo'shishda xatolik yuz berdi.")
+        await send_to_all_admins("⚠️ Botni guruhga qo'shishda xatolik yuz berdi.")
 
 async def _process_group_members(group_id: int, is_teacher_group: bool = False):
     """Guruh a'zolarini yig'ish va bazaga qo'shish"""
@@ -210,7 +270,7 @@ async def _process_group_members(group_id: int, is_teacher_group: bool = False):
                 members.append(_format_user_data(user))
         
         if not members:
-            await _notify_admins("⚠️ Guruhda foydalanuvchilar topilmadi.")
+            await send_to_all_admins("⚠️ Guruhda foydalanuvchilar topilmadi.")
             return
         
         success_count = 0
@@ -242,11 +302,11 @@ async def _process_group_members(group_id: int, is_teacher_group: bool = False):
             f"❌ Xatolik: {failed_count}\n"
             f"📋 Jami: {len(members)}"
         )
-        await _notify_admins(result_text)
+        await send_to_all_admins(result_text)
         
     except Exception as e:
         logging.error(f"Process group members error: {e}")
-        await _notify_admins("⚠️ Guruh a'zolarini qayta ishlashda xatolik yuz berdi.")
+        await send_to_all_admins("⚠️ Guruh a'zolarini qayta ishlashda xatolik yuz berdi.")
 
 async def _add_user_to_group(client, user_data: dict, group_id: int, is_teacher: bool = False) -> bool:
     """Foydalanuvchini guruhga qo'shish"""
@@ -280,7 +340,7 @@ async def _handle_member_join(user_data: dict, group_id: int, group_title: str, 
             f"💬 {group_title}\n"
             f"🆔 Guruh ID: {group_id}"
         )
-        await _notify_admins(join_text)
+        await send_to_all_admins(join_text)
         
         # Foydalanuvchini bazaga qo'shish
         async with api_client as client:
@@ -324,7 +384,7 @@ async def _handle_member_leave(user_data: dict, group_id: int, group_title: str,
             f"{by_whom}\n"
             f"💬 {group_title}"
         )
-        await _notify_admins(leave_text)
+        await send_to_all_admins(leave_text)
         
         # Guruhdan o'chirish
         async with api_client as client:
@@ -418,21 +478,7 @@ def _get_error_message(response) -> str:
             return str(response["message"])
     return "Noma'lum xatolik"
 
+# Eski _notify_admins funksiyasi o'rniga send_to_all_admins ishlatiladi
 async def _notify_admins(message: str):
-    """Adminlarga xabar yuborish"""
-    admin_ids = ADMINS if isinstance(ADMINS, (list, tuple)) else [ADMINS]
-    
-    for admin_id in admin_ids:
-        try:
-            async with api_client as client:
-                admin_data = await client.check_admin(admin_id)
-                if admin_data and admin_data.get("is_admin"):
-                    await bot.send_message(
-                        chat_id=admin_id, 
-                        text=message, 
-                        parse_mode="HTML"
-                    )
-                    break  # Birinchi adminga yuborib to'xtatish
-        except Exception as e:
-            logging.warning(f"Admin notification error for {admin_id}: {e}")
-            continue
+    """Deprecated: Use send_to_all_admins instead"""
+    await send_to_all_admins(message)
