@@ -1,31 +1,52 @@
+import sys
 import asyncio
-
+import logging
 from aiogram import Bot, Dispatcher
-from aiogram.client.session.middlewares.request_logging import logger
 from utils.telethon_client import telethon_client
+
+
+# --- Logger Setup ---
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Log format
+formatter = logging.Formatter(
+    fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+
+# Faylga yozuvchi handler
+file_handler = logging.FileHandler("bot.log", encoding="utf-8")
+file_handler.setFormatter(formatter)
+
+# Konsolga chiqaruvchi handler
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(formatter)
+
+# Handlerlarni biriktiramiz
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
+
+# Aiogram loglarini ham shu handlerlarga bog‘lash
+logging.getLogger("aiogram").handlers = [file_handler, console_handler]
+logging.getLogger("aiogram").setLevel(logging.INFO)
 
 
 def setup_handlers(dispatcher: Dispatcher) -> None:
     """HANDLERS"""
     from handlers import setup_routers
-
     dispatcher.include_router(setup_routers())
 
 
 def setup_middlewares(dispatcher: Dispatcher, bot: Bot) -> None:
     """MIDDLEWARE"""
     from middlewares.throttling import ThrottlingMiddleware
-
-    # Spamdan himoya qilish uchun klassik ichki o'rta dastur. So'rovlar orasidagi asosiy vaqtlar 0,5 soniya
     dispatcher.message.middleware(ThrottlingMiddleware(slow_mode_delay=0.5))
 
 
 def setup_filters(dispatcher: Dispatcher) -> None:
     """FILTERS"""
     from filters import ChatPrivateFilter
-
-    # Chat turini aniqlash uchun klassik umumiy filtr
-    # Filtrni handlers/users/__init__ -dagi har bir routerga alohida o'rnatish mumkin
     dispatcher.message.filter(ChatPrivateFilter(chat_type=["private"]))
 
 
@@ -41,15 +62,15 @@ async def database_connected():
     try:
         from utils.db.postgres import api_client
         await api_client.health_check()
-    except:
-        pass
+        logger.info("Database connected")
+    except Exception as e:
+        logger.error(f"Database connection failed: {e}")
 
 
 async def aiogram_on_startup_polling(dispatcher: Dispatcher, bot: Bot) -> None:
     from utils.set_bot_commands import set_default_commands
     from utils.notify_admins import on_startup_notify
 
-    logger.info("Database connected")
     await database_connected()
 
     logger.info("Starting polling")
@@ -57,9 +78,11 @@ async def aiogram_on_startup_polling(dispatcher: Dispatcher, bot: Bot) -> None:
     await setup_aiogram(bot=bot, dispatcher=dispatcher)
     await on_startup_notify(bot=bot)
     await set_default_commands(bot=bot)
-    print("Telethon clientga ulanmoqda...")
-    await telethon_client.start()   # <-- shart
-    print("Telethon client ishga tushdi!")
+
+    logger.info("Telethon clientga ulanmoqda...")
+    await telethon_client.start()
+    logger.info("Telethon client ishga tushdi!")
+
 
 async def aiogram_on_shutdown_polling(dispatcher: Dispatcher, bot: Bot):
     logger.info("Stopping polling")
@@ -80,13 +103,11 @@ def main():
 
     dispatcher.startup.register(aiogram_on_startup_polling)
     dispatcher.shutdown.register(aiogram_on_shutdown_polling)
-    
+
     asyncio.run(dispatcher.start_polling(
         bot,
         close_bot_session=True,
-        allowed_updates=[
-            'message', 'chat_member', 'my_chat_member', 'callback_query'
-        ]
+        allowed_updates=['message', 'chat_member', 'my_chat_member', 'callback_query']
     ))
 
 
@@ -94,4 +115,4 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        logger.info("Bot stopped!")
+        logger.info("Bot stopped by user!")
